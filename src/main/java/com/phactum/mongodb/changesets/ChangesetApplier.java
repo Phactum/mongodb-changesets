@@ -278,12 +278,12 @@ public class ChangesetApplier {
       final List<String> rollbackScripts;
       if (rollbackScript == null) {
         rollbackScripts = List.of();
-      } else if (rollbackScript instanceof String) {
-        rollbackScripts = List.of((String) rollbackScript);
       } else if (rollbackScript instanceof Collection) {
         rollbackScripts = List.copyOf((Collection<String>) rollbackScript);
       } else {
-        rollbackScripts = List.of(rollbackScript.toString());
+        // the return type of the method was checked while the steps were collected, and what
+        // passed that check and is no collection is a String
+        rollbackScripts = List.of((String) rollbackScript);
       }
       persistedChangeset.setRollbackScripts(rollbackScripts);
     } catch (Exception e) {
