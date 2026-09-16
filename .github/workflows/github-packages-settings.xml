@@ -18,10 +18,10 @@
             <password>${env.GITHUB_TOKEN}</password>
         </server>
         <!-- used by the release, which uploads to Maven Central through the 'central-portal'
-             profile of the release parent. That profile names 'vanillabp-central' as its
-             publishing server, so the id here has to read the same. -->
+             profile. The POM of this project overrides the publishing server the release parent
+             names and calls it 'phactum-central', so the id here has to read the same. -->
         <server>
-            <id>vanillabp-central</id>
+            <id>phactum-central</id>
             <username>${env.MAVEN_USERNAME}</username>
             <password>${env.MAVEN_PASSWORD}</password>
         </server>

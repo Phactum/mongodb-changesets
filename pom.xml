@@ -204,4 +204,30 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <profile>
+      <!-- The release parent declares this profile too, and its copy names 'vanillabp-central'
+        as the server the Central Portal credentials are read from. That name is written into the
+        parent, not into a property, so the only way to say a different one is to declare the
+        plugin here again. Maven merges the two by plugin key and the child wins, which
+        'mvn help:effective-pom -Pcentral-portal' shows.
+
+        The server id has to match the <server> entry in
+        .github/workflows/github-packages-settings.xml. Change one and the other one goes with it,
+        or the upload has no credentials. -->
+      <id>central-portal</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <configuration>
+              <publishingServerId>phactum-central</publishingServerId>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
