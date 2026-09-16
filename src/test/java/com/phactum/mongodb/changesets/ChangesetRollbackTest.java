@@ -146,7 +146,7 @@ class ChangesetRollbackTest extends AgainstARealMongoDb {
         .run(context -> assertThat(context).hasNotFailed());
     assertThat(mongoTemplate().getCollectionNames()).contains("letters");
 
-    final var node = RollbackAllNode.startAgainst(connectionString());
+    final var node = RollbackAllNode.startAgainst(connectionString(), "true");
     final var ended = node.waitFor(2, TimeUnit.MINUTES);
     assertThat(ended)
         .withFailMessage("the node did not end on its own")
@@ -159,11 +159,52 @@ class ChangesetRollbackTest extends AgainstARealMongoDb {
 
   }
 
+  @Test
+  void theValueIsReadTheWayAnOperatorTypesIt() {
+
+    applicationHaving(TheOldSoftware.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    // an operator types this on the day something is wrong. Upper case and a stray blank are
+    // what was meant, so they count.
+    withTheProperty(ROLLBACK_UNKNOWN, " TRUE ", () -> applicationHaving(TheNewSoftware.class)
+        .run(context -> assertThat(context).hasNotFailed()));
+
+    assertThat(mongoTemplate().getCollectionNames()).doesNotContain("letters", "numbers");
+
+  }
+
+  @Test
+  void theRollbackOfEverythingReadsItsValueTheSameWay() throws Exception {
+
+    applicationHaving(RollbackAllNode.ChangesetsOfThatNode.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    // the two properties answer to the same spelling, so this one takes upper case as well
+    final var node = RollbackAllNode.startAgainst(connectionString(), "TRUE");
+    assertThat(node.waitFor(2, TimeUnit.MINUTES))
+        .withFailMessage("the node did not end on its own")
+        .isTrue();
+
+    assertThat(node.exitValue()).isEqualTo(1);
+    assertThat(mongoTemplate().getCollectionNames()).doesNotContain("letters");
+
+  }
+
   private static void withTheProperty(
       final String name,
       final Runnable whileItIsSet) {
 
-    System.setProperty(name, Boolean.TRUE.toString());
+    withTheProperty(name, Boolean.TRUE.toString(), whileItIsSet);
+
+  }
+
+  private static void withTheProperty(
+      final String name,
+      final String value,
+      final Runnable whileItIsSet) {
+
+    System.setProperty(name, value);
     try {
       whileItIsSet.run();
     } finally {

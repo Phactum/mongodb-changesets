@@ -136,10 +136,7 @@ public class ChangesetApplier {
 
   private void rollbackAllIfNecessary() {
 
-    final String rollbackSysProp = System.getProperty(
-        SYSTEMPROPERTY_ROLLBACKALL,
-        Boolean.FALSE.toString());
-    if (!rollbackSysProp.equals(Boolean.TRUE.toString())) {
+    if (!rollbackWasAskedFor(SYSTEMPROPERTY_ROLLBACKALL)) {
       return;
     }
 
@@ -156,17 +153,30 @@ public class ChangesetApplier {
   private void rollbackUnknownChangesets(
       final List<ChangesetInformation> unknownChangesets) {
 
-    final String rollbackSysProp = System.getProperty(
-        SYSTEMPROPERTY_ROLLBACK_UNKNOWN,
-        Boolean.FALSE.toString())
-        .toLowerCase();
-    if (!rollbackSysProp.equals(Boolean.TRUE.toString())) {
+    if (!rollbackWasAskedFor(SYSTEMPROPERTY_ROLLBACK_UNKNOWN)) {
       return;
     }
 
     unknownChangesets
         .forEach(changeset -> rollbackChangeset(changeset,
             "Rolling back unknown changeset '{}' of previous software version"));
+
+  }
+
+  /**
+   * Whether the given system property asks for a rollback.
+   * <p>
+   * Somebody types this on a command line, on the day something is wrong. So the value is read
+   * without pedantry: upper case counts and a blank around it does too. Both properties are read
+   * here, so both answer to the same spelling.
+   */
+  private static boolean rollbackWasAskedFor(
+      final String systemProperty) {
+
+    return Boolean.parseBoolean(
+        System
+            .getProperty(systemProperty, Boolean.FALSE.toString())
+            .trim());
 
   }
 

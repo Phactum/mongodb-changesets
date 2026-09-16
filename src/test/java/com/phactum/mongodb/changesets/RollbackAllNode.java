@@ -47,11 +47,14 @@ public final class RollbackAllNode {
    * Starts the node against the given database. The caller waits for it and reads the exit code.
    *
    * @param connectionString where the node finds the database
+   * @param rollbackAll what the node gets as the value of the system property, so a test can say
+   *          how an operator spelled it
    * @return the running process
    * @throws IOException when the process cannot be started
    */
   public static Process startAgainst(
-      final String connectionString) throws IOException {
+      final String connectionString,
+      final String rollbackAll) throws IOException {
 
     final var java = Path
         .of(System.getProperty("java.home"), "bin", "java")
@@ -61,7 +64,8 @@ public final class RollbackAllNode {
         java,
         "-cp",
         System.getProperty("java.class.path"),
-        "-Dinitializer.rollback.all=true",
+        "-Dinitializer.rollback.all="
+            + rollbackAll,
         RollbackAllNode.class.getName(),
         connectionString);
 

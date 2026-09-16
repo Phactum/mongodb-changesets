@@ -114,6 +114,10 @@ newest first, and then ends the process. The application does not come up.
 and this build of the software does not. That is what a downgrade leaves behind. The application
 comes up afterwards.
 
+Both values are read the same way and without pedantry. Upper case counts and a blank around the
+value does too, so `-Dinitializer.rollback.all=TRUE` starts the rollback like `true` does.
+Anything else means no.
+
 A script which fails is logged and the rollback goes on. A rollback is a repair, and stopping in
 the middle of one leaves the database in a worse state than finishing it.
 
