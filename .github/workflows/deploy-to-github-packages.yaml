@@ -1,0 +1,54 @@
+name: Publish to GitHub Packages
+# Only a push to main publishes the snapshot. Other projects compile against the shared
+# snapshot coordinates, so what gets published has to be what main holds, not whatever
+# branch was pushed last.
+#
+# The only credential is the token GitHub hands the run. It may write to the packages of
+# its own repository, which is where this artifact goes, so no secret has to be created.
+"on":
+  push:
+    branches:
+      - "main"
+concurrency:
+  # One publish of this repository at a time, because snapshot artifacts share their
+  # coordinates and two publishes at once overwrite each other. A run which is already
+  # running is never cancelled. A run which is only waiting can be taken out by a newer
+  # one, because GitHub keeps at most one waiting run per group, and for a publish of
+  # main that is what should happen: the newer run carries the newer artifacts. The
+  # pull-request build has a group of its own, one per pull request, because it
+  # publishes nothing. The release has a group of its own too, so it can run beside a
+  # publish: the 'central-portal' profile switches the deploy plugin off, so a release
+  # uploads to Maven Central and nothing of it reaches GitHub Packages.
+  group: mongodb-changesets-publish
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          java-version: 21.0.12+101.0.LTS
+          distribution: temurin
+          cache: maven
+      - name: Publish package
+        run: mvn -s $GITHUB_WORKSPACE/.github/workflows/github-packages-settings.xml
+          --batch-mode --no-transfer-progress deploy
+        env:
+          GITHUB_ACTOR: "${{ github.actor }}"
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Upload the test reports of a failed build
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: |
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
+          retention-days: 7
+          if-no-files-found: ignore

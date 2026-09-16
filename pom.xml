@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- the release parent of the VanillaBP projects. It is used here for one reason only: it
+       carries the plugin setup a published artifact needs, the sources jar, the javadoc jar and
+       the signing. The groupId of this project is its own and has nothing to do with VanillaBP. -->
+  <parent>
+    <groupId>io.vanillabp</groupId>
+    <artifactId>release-parent</artifactId>
+    <version>1.1.1</version>
+  </parent>
+
+  <groupId>com.phactum.mongodb</groupId>
+  <artifactId>mongodb-changesets</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+  <name>MongoDB Changesets</name>
+  <description>Database migration for MongoDB, driven by annotated methods of Spring beans.</description>
+  <url>https://github.com/Phactum/mongodb-changesets</url>
+
+  <scm>
+    <connection>scm:git:https://github.com/Phactum/mongodb-changesets.git</connection>
+    <developerConnection>scm:git:https://github.com/Phactum/mongodb-changesets.git</developerConnection>
+    <url>https://github.com/Phactum/mongodb-changesets/tree/main</url>
+  </scm>
+
+  <distributionManagement>
+    <snapshotRepository>
+      <id>github</id>
+      <name>Github Packages</name>
+      <url>https://maven.pkg.github.com/Phactum/mongodb-changesets</url>
+    </snapshotRepository>
+  </distributionManagement>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <version.java>21</version.java>
+    <maven.compiler.release>21</maven.compiler.release>
+    <!-- Spring Boot 4 split spring-boot-autoconfigure into one artifact per technology. The
+         MongoDB auto-configuration this project orders itself against lives in
+         spring-boot-data-mongodb since then. -->
+    <spring-boot.version>4.1.1</spring-boot.version>
+    <jacoco.version>0.8.15</jacoco.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- holds DataMongoRepositoriesAutoConfiguration, which this project's auto-configuration
+         names to say that the migration runs before repositories are set up. It brings
+         spring-data-mongodb and the MongoDB driver along, which is where MongoTemplate and
+         WriteConcern come from. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-data-mongodb</artifactId>
+    </dependency>
+    <!-- the application decides how it connects to MongoDB, so it brings the starter. Optional
+         here means: on the classpath while this project is built and tested, and not forced on
+         anybody who depends on it. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-mongodb</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.annotation</groupId>
+      <artifactId>jakarta.annotation-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <!-- pinned rather than left to whichever Maven runs the build, so a laptop and the
+               pipeline deploy with the same plugin -->
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-deploy-plugin</artifactId>
+          <version>3.1.4</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.6.0</version>
+          <configuration>
+            <!-- '@{jacoco.agent}' is resolved late, so coverage is also collected in forked
+                 JVMs -->
+            <argLine>@{jacoco.agent}</argLine>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.16.0</version>
+          <configuration>
+            <release>${version.java}</release>
+            <compilerArgs>
+              <!-- a javadoc which names a method is checked like any other claim: a link the
+                   compiler cannot resolve is an error -->
+              <arg>-Xdoclint:reference</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <!-- sources and javadoc travel with every build, not only with a release. GitHub Packages
+           is the only place this artifact is published to, and an IDE reading it from there
+           should find both. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <configuration>
+          <propertyName>jacoco.agent</propertyName>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>3.10.2</version>
+        <configuration>
+          <pom>
+            <includes>
+              <include>**/pom.xml</include>
+            </includes>
+            <excludes>
+              <exclude>**/target/**/</exclude>
+            </excludes>
+            <sortPom>
+              <quiet>true</quiet>
+            </sortPom>
+          </pom>
+          <markdown>
+            <includes>
+              <include>**/*.md</include>
+            </includes>
+            <excludes>
+              <exclude>**/target/**/</exclude>
+            </excludes>
+            <flexmark/>
+          </markdown>
+          <java>
+            <includes>
+              <include>src/main/java/**/*.java</include>
+              <include>src/test/java/**/*.java</include>
+            </includes>
+            <eclipse>
+              <file>${maven.multiModuleProjectDirectory}/formatting_conventions.xml</file>
+              <version>4.35</version>
+            </eclipse>
+            <removeUnusedImports/>
+            <importOrder>
+              <order>java,javax,org,com</order>
+            </importOrder>
+          </java>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <phase>process-sources</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <!-- The release parent declares this profile too, and its copy names 'vanillabp-central'
+        as the server the Central Portal credentials are read from. That name is written into the
+        parent, not into a property, so the only way to say a different one is to declare the
+        plugin here again. Maven merges the two by plugin key and the child wins, which
+        'mvn help:effective-pom -Pcentral-portal' shows.
+
+        The server id has to match the <server> entry in
+        .github/workflows/github-packages-settings.xml. Change one and the other one goes with it,
+        or the upload has no credentials. -->
+      <id>central-portal</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <configuration>
+              <publishingServerId>phactum-central</publishingServerId>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

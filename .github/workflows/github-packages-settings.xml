@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Maven reads this file instead of the one in the home directory, because the workflows pass
+     it with '-s'. So every server the build needs credentials for has to be named here.
+
+     No <repositories> are declared. Everything this project compiles against comes from Maven
+     Central, which Maven reaches without a profile. -->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+    <servers>
+        <!-- used for "mvn deploy" due to pom's distributionManagement/snapshotRepository. The
+             token GitHub hands every workflow run is enough to write to the packages of the
+             repository the run belongs to, so no secret has to be created for this. -->
+        <server>
+            <id>github</id>
+            <username>${env.GITHUB_ACTOR}</username>
+            <password>${env.GITHUB_TOKEN}</password>
+        </server>
+        <!-- used by the release, which uploads to Maven Central through the 'central-portal'
+             profile. The POM of this project overrides the publishing server the release parent
+             names and calls it 'phactum-central', so the id here has to read the same. -->
+        <server>
+            <id>phactum-central</id>
+            <username>${env.MAVEN_USERNAME}</username>
+            <password>${env.MAVEN_PASSWORD}</password>
+        </server>
+    </servers>
+
+</settings>
