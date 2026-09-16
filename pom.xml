@@ -17,19 +17,19 @@
   <packaging>jar</packaging>
   <name>MongoDB Changesets</name>
   <description>Database migration for MongoDB, driven by annotated methods of Spring beans.</description>
-  <url>https://github.com/phactum/mongodb-changesets</url>
+  <url>https://github.com/Phactum/mongodb-changesets</url>
 
   <scm>
-    <connection>scm:git:https://github.com/phactum/mongodb-changesets.git</connection>
-    <developerConnection>scm:git:https://github.com/phactum/mongodb-changesets.git</developerConnection>
-    <url>https://github.com/phactum/mongodb-changesets/tree/main</url>
+    <connection>scm:git:https://github.com/Phactum/mongodb-changesets.git</connection>
+    <developerConnection>scm:git:https://github.com/Phactum/mongodb-changesets.git</developerConnection>
+    <url>https://github.com/Phactum/mongodb-changesets/tree/main</url>
   </scm>
 
   <distributionManagement>
     <snapshotRepository>
       <id>github</id>
       <name>Github Packages</name>
-      <url>https://maven.pkg.github.com/phactum/mongodb-changesets</url>
+      <url>https://maven.pkg.github.com/Phactum/mongodb-changesets</url>
     </snapshotRepository>
   </distributionManagement>
 
