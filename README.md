@@ -88,10 +88,26 @@ next start tries that step again, instead of skipping a step which never happene
 ## What the migration does to your connection
 
 A record says that a step ran. It has to survive a node which dies right after that record was
-written, so the library writes journaled while it migrates. It sets the write concern
-`JOURNALED` on your `MongoTemplate` before the first step and puts your own value back when the
-last one is done, also when a step throws. So the connection is stricter for the time of the
-migration and is yours again afterwards.
+written, so the library writes with `w: 1, j: true` while it migrates. The primary answers once
+the record is in its journal, on disk. The step runs after that answer.
+
+The library sets that write concern on your `MongoTemplate` before the first step and puts your
+own value back when the last one is done, also when a step throws. Your own value does not apply
+while the migration runs, not even where it is the stronger one. An application which writes with
+`majority` writes its migration steps with `w: 1, j: true` like every other one, and has
+`majority` back once the last step is done.
+
+The promise names its `w` on purpose. `WriteConcern.JOURNALED` of the MongoDB driver says `j: true`
+and leaves `w` open, and Spring Data does not pass such a value on. A `MongoTemplate` whose
+`WriteResultChecking` is `EXCEPTION` replaces every write concern without a `w`, or with a `w`
+below one, by a plain `ACKNOWLEDGED`, and the journal flag is dropped with it. So an application
+which checks its write results would get no promise at all. `w: 1` is the same wish with the `w`
+spelled out, and it reaches the database either way.
+
+The promise is not `majority`. It is here for the node which wrote the record and then dies, and
+the journal brings that record back when the node starts again. A failover in the middle of a step
+is another matter. A step and the record about it are not one transaction, so no write concern
+makes the two survive or vanish together, and `majority` would not change that.
 
 What your application writes later is written the way your application set its `MongoTemplate` up.
 If you want a promise like this one for your own writes, make it yourself.
