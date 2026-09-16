@@ -154,4 +154,12 @@ mvn install
 
 Java 21 and Spring Boot 4 are what this builds against.
 
+The tests talk to a real MongoDB in a container, so the build needs a Docker it can reach. What
+this library promises is what the database promises, so a stand-in would only test the stand-in.
+One test starts a second process of its own, because the rollback of everything ends the process
+it runs in.
+
+The build also measures how much of the code the tests reach. It fails below 85 percent of the
+instructions, and the goal is above 90. Each run writes its report to `target/site/jacoco`.
+
 Run `mvn spotless:apply` before you commit. The build fails on a formatting violation.

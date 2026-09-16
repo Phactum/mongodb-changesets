@@ -43,6 +43,12 @@
          spring-boot-data-mongodb since then. -->
     <spring-boot.version>4.1.1</spring-boot.version>
     <jacoco.version>0.8.15</jacoco.version>
+    <!-- Where the build breaks, as a share of the covered instructions of the whole project.
+      The number is the one every VanillaBP repository uses, and it marks the point where
+      somebody has to look, not the goal to aim at. The goal is 90 percent. So the gate is
+      never raised to whatever the suite happens to reach, and never lowered to make a build
+      pass. -->
+    <coverage.gate>0.85</coverage.gate>
   </properties>
 
   <dependencyManagement>
@@ -173,6 +179,27 @@
               <goal>report</goal>
             </goals>
             <phase>verify</phase>
+          </execution>
+          <execution>
+            <id>gate</id>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <phase>verify</phase>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>INSTRUCTION</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${coverage.gate}</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
           </execution>
         </executions>
       </plugin>
