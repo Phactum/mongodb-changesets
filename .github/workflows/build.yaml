@@ -1,0 +1,52 @@
+name: Build
+# A pull request builds and tests. Publishing is the job of
+# deploy-to-github-packages.yaml, which has a concurrency group of its own.
+#
+# No secret is read here. Everything this project compiles against comes from Maven
+# Central, and the build uploads nothing, so it needs no settings file either.
+"on":
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  # A group per pull request. GitHub keeps at most one waiting run per group, and a
+  # newer run takes the place of the one that waits. The replaced run ends as
+  # 'cancelled' without ever starting a job, so its pull request is left with no build
+  # result, and nothing in the interface says that a result is missing.
+  # 'cancel-in-progress: false' only protects the run which is already running.
+  #
+  # With the ref in the group name, a build waits only for another build of the same
+  # pull request, and there the newest commit keeps its run. The publish workflow has a
+  # group of its own, which this build never needs to share: it runs 'install' and
+  # uploads nothing, so it can neither overwrite a snapshot nor be overwritten by one.
+  group: mongodb-changesets-pr-build-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          java-version: 21.0.12+101.0.LTS
+          distribution: temurin
+          cache: maven
+      # 'install' and not 'install verify': install already runs every phase verify has,
+      # so naming both makes Maven walk two lifecycles. The tests skip their second run,
+      # the compiler does not, and every javac warning is reported twice.
+      - name: Build and test
+        run: mvn --batch-mode --no-transfer-progress install
+      # what a failing test printed is in these reports
+      - name: Upload the test reports of a failed build
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: |
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
+          retention-days: 7
+          if-no-files-found: ignore
