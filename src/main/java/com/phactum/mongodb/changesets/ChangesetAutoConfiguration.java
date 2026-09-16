@@ -4,6 +4,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.data.mongodb.autoconfigure.DataMongoRepositoriesAutoConfiguration;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -32,6 +33,10 @@ import com.mongodb.client.MongoClient;
 @ConditionalOnClass({
     MongoClient.class, MongoTemplate.class
 })
+// No class is named here. This only asks Spring Boot for the machinery which binds a bean whose
+// class carries @ConfigurationProperties. Naming ChangesetProperties would publish a second bean
+// of that class beside the one below, and then nothing could be injected by type any more.
+@EnableConfigurationProperties
 public class ChangesetAutoConfiguration {
 
   @Bean
