@@ -317,7 +317,7 @@ public class ChangesetApplier {
       throw new RuntimeException(
           "Result type of changeset method '"
               + changesetId
-              + "' has to be either String, String[] or Collection<String>, but is '"
+              + "' has to be either String or Collection<String>, but is '"
               + returnType);
     }
 
