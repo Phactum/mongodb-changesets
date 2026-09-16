@@ -20,6 +20,7 @@ import org.springframework.data.domain.Sort.Direction;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.index.Index;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.util.ReflectionUtils;
 
 import com.mongodb.WriteConcern;
 import com.phactum.mongodb.changesets.ChangesetProperties.MongoDbMode;
@@ -34,9 +35,10 @@ import jakarta.annotation.PostConstruct;
  * not seen. What ran is written into the collection of {@link ChangesetInformation}, and a later
  * start reads that collection to know what to skip.
  * <p>
- * A step is saved before it is applied. So a second node which starts at the same moment and
- * gets there first makes this save fail on the optimistic lock, instead of applying the step
- * twice.
+ * A step is saved before it is applied. A second node which starts at the same moment and gets
+ * there first has saved the same record already. This node still has the step on its list, so
+ * its own save is an insert and the id of that record is taken. MongoDB refuses it, which ends
+ * this start instead of applying the step twice.
  * <p>
  * A bean which may only be built after the migration takes this one as a parameter. Spring builds
  * what a bean depends on first, so the migration has run by the time that bean is built. This is
@@ -89,23 +91,57 @@ public class ChangesetApplier {
 
     logger.info("About to apply MongoDb changesets...");
 
+    // A record says that a step ran, and it has to survive a node which dies right after that
+    // record was written. So the migration writes journaled. The template belongs to the
+    // application, so the stricter promise lasts for the migration and the value the application
+    // had is put back afterwards, also when a step throws.
+    final var writeConcernOfTheApplication = writeConcernOfTheApplication();
     mongoTemplate.setWriteConcern(WriteConcern.JOURNALED);
+    try {
 
-    initChangesetsCollection();
+      initChangesetsCollection();
 
-    final var changesets = buildMapSortedByChangesetOrder();
+      final var changesets = buildMapSortedByChangesetOrder();
 
-    collectChangesetsByAnnotationsOnBeans(changesets);
+      collectChangesetsByAnnotationsOnBeans(changesets);
 
-    rollbackAllIfNecessary();
+      rollbackAllIfNecessary();
 
-    final var unknownChangesets = removeAlreadyAppliedChangesets(changesets);
+      final var unknownChangesets = removeAlreadyAppliedChangesets(changesets);
 
-    applyNewChangesets(changesets);
+      applyNewChangesets(changesets);
 
-    rollbackUnknownChangesets(unknownChangesets);
+      rollbackUnknownChangesets(unknownChangesets);
+
+    } finally {
+      mongoTemplate.setWriteConcern(writeConcernOfTheApplication);
+    }
 
     logger.info("Applying MongoDb changesets completed.");
+
+  }
+
+  /**
+   * The write concern the application has on its template, or <code>null</code> where it set
+   * none and the connection decides.
+   * <p>
+   * A MongoTemplate takes a write concern and hands none back, so the value is read from the
+   * field its setter writes. Without it this library would either leave the connection of the
+   * application changed for good or guess a value the application never asked for.
+   */
+  private WriteConcern writeConcernOfTheApplication() {
+
+    final var writeConcern = ReflectionUtils
+        .findField(MongoTemplate.class, "writeConcern", WriteConcern.class);
+    if (writeConcern == null) {
+      throw new IllegalStateException(
+          "Cannot read the write concern of the MongoTemplate. This version of Spring Data "
+              + "MongoDB keeps it somewhere else than in the field 'writeConcern', so the "
+              + "migration cannot give the template back the way it got it.");
+    }
+    ReflectionUtils.makeAccessible(writeConcern);
+
+    return (WriteConcern) ReflectionUtils.getField(writeConcern, mongoTemplate);
 
   }
 
@@ -136,10 +172,7 @@ public class ChangesetApplier {
 
   private void rollbackAllIfNecessary() {
 
-    final String rollbackSysProp = System.getProperty(
-        SYSTEMPROPERTY_ROLLBACKALL,
-        Boolean.FALSE.toString());
-    if (!rollbackSysProp.equals(Boolean.TRUE.toString())) {
+    if (!rollbackWasAskedFor(SYSTEMPROPERTY_ROLLBACKALL)) {
       return;
     }
 
@@ -156,17 +189,30 @@ public class ChangesetApplier {
   private void rollbackUnknownChangesets(
       final List<ChangesetInformation> unknownChangesets) {
 
-    final String rollbackSysProp = System.getProperty(
-        SYSTEMPROPERTY_ROLLBACK_UNKNOWN,
-        Boolean.FALSE.toString())
-        .toLowerCase();
-    if (!rollbackSysProp.equals(Boolean.TRUE.toString())) {
+    if (!rollbackWasAskedFor(SYSTEMPROPERTY_ROLLBACK_UNKNOWN)) {
       return;
     }
 
     unknownChangesets
         .forEach(changeset -> rollbackChangeset(changeset,
             "Rolling back unknown changeset '{}' of previous software version"));
+
+  }
+
+  /**
+   * Whether the given system property asks for a rollback.
+   * <p>
+   * Somebody types this on a command line, on the day something is wrong. So the value is read
+   * without pedantry: upper case counts and a blank around it does too. Both properties are read
+   * here, so both answer to the same spelling.
+   */
+  private static boolean rollbackWasAskedFor(
+      final String systemProperty) {
+
+    return Boolean.parseBoolean(
+        System
+            .getProperty(systemProperty, Boolean.FALSE.toString())
+            .trim());
 
   }
 
@@ -177,11 +223,17 @@ public class ChangesetApplier {
     try {
       logger.info(info, changeset.getId());
 
-      changeset.getRollbackScripts()
-          .stream()
-          .map(Document::parse)
-          .forEach(script -> mongoTemplate
-              .execute(db -> db.runCommand(script)));
+      // every record this mechanism writes carries a list, and a record somebody wrote into the
+      // collection themselves carries none. There is nothing to run for such a record, and the
+      // rollback goes on to remove it like any other one.
+      final var rollbackScripts = changeset.getRollbackScripts();
+      if (rollbackScripts != null) {
+        rollbackScripts
+            .stream()
+            .map(Document::parse)
+            .forEach(script -> mongoTemplate
+                .execute(db -> db.runCommand(script)));
+      }
 
       mongoTemplate
           .remove(changeset);
@@ -208,15 +260,18 @@ public class ChangesetApplier {
 
     logger.info("Applying new changeset '{}'", changeset.getId());
 
-    // The record of the step is saved before the step runs. Another node of the cluster
-    // which starts at the same moment and is a little bit faster has saved the same record
-    // already, and then this save fails on the optimistic lock. That failure ends this
-    // start, which is what should happen: the other node is applying the step, and applying
-    // it twice is what has to be avoided.
+    // The time is written with the record and not after it. A process which is killed inside
+    // the step leaves its record behind, and that record says when the step was started.
+    changeset.setTimestamp(Instant.now());
+
+    // The record of the step is saved before the step runs. Another node of the cluster which
+    // starts at the same moment and is a little bit faster has saved the same record already.
+    // This node still has the step on its list, so this save is an insert and the id is taken.
+    // MongoDB refuses it with a duplicate key error, and that ends this start. Which is what
+    // should happen: the other node is applying the step, and applying it twice is what has to
+    // be avoided.
     final ChangesetInformation persistedChangeset = mongoTemplate
         .save(changeset);
-
-    persistedChangeset.setTimestamp(Instant.now());
 
     try {
       final var reflectionMethod = method.reflectionMethod;
@@ -229,12 +284,12 @@ public class ChangesetApplier {
       final List<String> rollbackScripts;
       if (rollbackScript == null) {
         rollbackScripts = List.of();
-      } else if (rollbackScript instanceof String) {
-        rollbackScripts = List.of((String) rollbackScript);
       } else if (rollbackScript instanceof Collection) {
         rollbackScripts = List.copyOf((Collection<String>) rollbackScript);
       } else {
-        rollbackScripts = List.of(rollbackScript.toString());
+        // the return type of the method was checked while the steps were collected, and what
+        // passed that check and is no collection is a String
+        rollbackScripts = List.of((String) rollbackScript);
       }
       persistedChangeset.setRollbackScripts(rollbackScripts);
     } catch (Exception e) {

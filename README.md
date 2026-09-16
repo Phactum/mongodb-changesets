@@ -68,18 +68,31 @@ configuration class is built before the beans it declares, so asking for it guar
 nothing tells you that.
 
 A step runs once per database. What ran is stored in the collection `ChangesetInformation`, one
-document per step, holding the author, the order, the time it ran and the rollback scripts it
-answered with. A later start reads that collection and skips what is in it.
+document per step, holding the author, the order, the time the step was started and the rollback
+scripts it answered with. A later start reads that collection and skips what is in it.
 
 The identity of a step is the class name of its bean plus the name of its method. Renaming either
 of the two makes the step run again on a database which already has it.
 
 The step is written down before it runs. A second node of the cluster which starts at the same
-moment and is a little bit faster has written the same document already, so this write fails on
-the optimistic lock. That ends the second start, and the step is not applied twice.
+moment and is a little bit faster has written that document already. The slower node still has the
+step on its list, so its own write is an insert, and the `_id` of that document is taken. MongoDB
+refuses it with a duplicate key error. That ends the slower start, and the step is not applied
+twice.
 
 A step which throws ends the start too, and the document written before it is taken back. So the
 next start tries that step again, instead of skipping a step which never happened.
+
+## What the migration does to your connection
+
+A record says that a step ran. It has to survive a node which dies right after that record was
+written, so the library writes journaled while it migrates. It sets the write concern
+`JOURNALED` on your `MongoTemplate` before the first step and puts your own value back when the
+last one is done, also when a step throws. So the connection is stricter for the time of the
+migration and is yours again afterwards.
+
+What your application writes later is written the way your application set its `MongoTemplate` up.
+If you want a promise like this one for your own writes, make it yourself.
 
 ## How the order is decided
 
@@ -113,6 +126,10 @@ newest first, and then ends the process. The application does not come up.
 `-Dinitializer.rollback.unknown=true` runs the rollback scripts of the steps the database knows
 and this build of the software does not. That is what a downgrade leaves behind. The application
 comes up afterwards.
+
+Both values are read the same way and without pedantry. Upper case counts and a blank around the
+value does too, so `-Dinitializer.rollback.all=TRUE` starts the rollback like `true` does.
+Anything else means no.
 
 A script which fails is logged and the rollback goes on. A rollback is a repair, and stopping in
 the middle of one leaves the database in a worse state than finishing it.

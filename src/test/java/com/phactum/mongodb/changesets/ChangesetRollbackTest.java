@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.concurrent.TimeUnit;
 
+import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
@@ -146,7 +147,7 @@ class ChangesetRollbackTest extends AgainstARealMongoDb {
         .run(context -> assertThat(context).hasNotFailed());
     assertThat(mongoTemplate().getCollectionNames()).contains("letters");
 
-    final var node = RollbackAllNode.startAgainst(connectionString());
+    final var node = RollbackAllNode.startAgainst(connectionString(), "true");
     final var ended = node.waitFor(2, TimeUnit.MINUTES);
     assertThat(ended)
         .withFailMessage("the node did not end on its own")
@@ -159,11 +160,78 @@ class ChangesetRollbackTest extends AgainstARealMongoDb {
 
   }
 
+  @Test
+  void theValueIsReadTheWayAnOperatorTypesIt() {
+
+    applicationHaving(TheOldSoftware.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    // an operator types this on the day something is wrong. Upper case and a stray blank are
+    // what was meant, so they count.
+    withTheProperty(ROLLBACK_UNKNOWN, " TRUE ", () -> applicationHaving(TheNewSoftware.class)
+        .run(context -> assertThat(context).hasNotFailed()));
+
+    assertThat(mongoTemplate().getCollectionNames()).doesNotContain("letters", "numbers");
+
+  }
+
+  @Test
+  void theRollbackOfEverythingReadsItsValueTheSameWay() throws Exception {
+
+    applicationHaving(RollbackAllNode.ChangesetsOfThatNode.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    // the two properties answer to the same spelling, so this one takes upper case as well
+    final var node = RollbackAllNode.startAgainst(connectionString(), "TRUE");
+    assertThat(node.waitFor(2, TimeUnit.MINUTES))
+        .withFailMessage("the node did not end on its own")
+        .isTrue();
+
+    assertThat(node.exitValue()).isEqualTo(1);
+    assertThat(mongoTemplate().getCollectionNames()).doesNotContain("letters");
+
+  }
+
+  @Test
+  void aRecordWrittenByHandWithoutScriptsDoesNotStopTheRollback() {
+
+    applicationHaving(TheOldSoftware.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    // every record of this mechanism carries a list of scripts, and a record somebody wrote
+    // into the collection themselves carries none
+    mongoTemplate()
+        .getCollection(ChangesetInformation.COLLECTION_NAME)
+        .insertOne(new Document("_id", "written.by.hand#aStep")
+            .append("version", 0L)
+            .append("author", "somebody")
+            .append("order", 40));
+
+    withTheProperty(ROLLBACK_UNKNOWN, () -> applicationHaving(TheNewSoftware.class)
+        .run(context -> assertThat(context).hasNotFailed()));
+
+    // there was nothing to run for it, and the record is gone like every other unknown one
+    assertThat(mongoTemplate().findAll(ChangesetInformation.class))
+        .extracting(ChangesetInformation::getId)
+        .containsExactly(TheNewSoftware.class.getName()
+            + "#createTheWords");
+
+  }
+
   private static void withTheProperty(
       final String name,
       final Runnable whileItIsSet) {
 
-    System.setProperty(name, Boolean.TRUE.toString());
+    withTheProperty(name, Boolean.TRUE.toString(), whileItIsSet);
+
+  }
+
+  private static void withTheProperty(
+      final String name,
+      final String value,
+      final Runnable whileItIsSet) {
+
+    System.setProperty(name, value);
     try {
       whileItIsSet.run();
     } finally {
