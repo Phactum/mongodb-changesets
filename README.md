@@ -1,5 +1,7 @@
 # MongoDB Changesets
 
+[![Coverage](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fphactum.github.io%2Fmongodb-changesets%2Fcoverage-report%2Findex.html&search=Total.*%3F.([0-9]%2B)[^0-9]*%3F%25&replace=%241%25&flags=m&label=Coverage&color=green&cacheSeconds=60)](https://phactum.github.io/mongodb-changesets/coverage-report)
+
 A database migration for MongoDB, written in Java. Flyway and Liquibase do this for a relational
 database. This does it for MongoDB, and a migration step is a method of a Spring bean rather than
 a file.
@@ -178,5 +180,8 @@ it runs in.
 
 The build also measures how much of the code the tests reach. It fails below 85 percent of the
 instructions, and the goal is above 90. Each run writes its report to `target/site/jacoco`.
+A push to main publishes that report to
+[https://phactum.github.io/mongodb-changesets/coverage-report](https://phactum.github.io/mongodb-changesets/coverage-report),
+and the badge at the top of this page reads the percentage out of it.
 
 Run `mvn spotless:apply` before you commit. The build fails on a formatting violation.
