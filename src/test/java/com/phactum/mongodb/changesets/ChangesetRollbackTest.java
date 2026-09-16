@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.concurrent.TimeUnit;
 
+import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
@@ -188,6 +189,32 @@ class ChangesetRollbackTest extends AgainstARealMongoDb {
 
     assertThat(node.exitValue()).isEqualTo(1);
     assertThat(mongoTemplate().getCollectionNames()).doesNotContain("letters");
+
+  }
+
+  @Test
+  void aRecordWrittenByHandWithoutScriptsDoesNotStopTheRollback() {
+
+    applicationHaving(TheOldSoftware.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    // every record of this mechanism carries a list of scripts, and a record somebody wrote
+    // into the collection themselves carries none
+    mongoTemplate()
+        .getCollection(ChangesetInformation.COLLECTION_NAME)
+        .insertOne(new Document("_id", "written.by.hand#aStep")
+            .append("version", 0L)
+            .append("author", "somebody")
+            .append("order", 40));
+
+    withTheProperty(ROLLBACK_UNKNOWN, () -> applicationHaving(TheNewSoftware.class)
+        .run(context -> assertThat(context).hasNotFailed()));
+
+    // there was nothing to run for it, and the record is gone like every other unknown one
+    assertThat(mongoTemplate().findAll(ChangesetInformation.class))
+        .extracting(ChangesetInformation::getId)
+        .containsExactly(TheNewSoftware.class.getName()
+            + "#createTheWords");
 
   }
 

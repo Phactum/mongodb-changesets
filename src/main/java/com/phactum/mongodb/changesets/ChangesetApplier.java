@@ -223,11 +223,17 @@ public class ChangesetApplier {
     try {
       logger.info(info, changeset.getId());
 
-      changeset.getRollbackScripts()
-          .stream()
-          .map(Document::parse)
-          .forEach(script -> mongoTemplate
-              .execute(db -> db.runCommand(script)));
+      // every record this mechanism writes carries a list, and a record somebody wrote into the
+      // collection themselves carries none. There is nothing to run for such a record, and the
+      // rollback goes on to remove it like any other one.
+      final var rollbackScripts = changeset.getRollbackScripts();
+      if (rollbackScripts != null) {
+        rollbackScripts
+            .stream()
+            .map(Document::parse)
+            .forEach(script -> mongoTemplate
+                .execute(db -> db.runCommand(script)));
+      }
 
       mongoTemplate
           .remove(changeset);
