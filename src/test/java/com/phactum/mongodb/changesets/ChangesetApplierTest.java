@@ -2,6 +2,7 @@ package com.phactum.mongodb.changesets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,10 +24,16 @@ class ChangesetApplierTest extends AgainstARealMongoDb {
    */
   static final List<String> invocations = new ArrayList<>();
 
+  /**
+   * The time each step found in the record written about it, before the step body ran.
+   */
+  static final List<Instant> timestampsSeenWhileTheStepsRan = new ArrayList<>();
+
   @BeforeEach
   void forgetWhatEarlierTestsRecorded() {
 
     invocations.clear();
+    timestampsSeenWhileTheStepsRan.clear();
 
   }
 
@@ -336,6 +343,35 @@ class ChangesetApplierTest extends AgainstARealMongoDb {
 
     assertThat(invocations)
         .containsExactly("first", "second", "the bean which needs the migration");
+
+  }
+
+  @DbChangesetConfiguration(author = "the team")
+  static class AStepReadingTheRecordWrittenAboutIt {
+
+    @DbChangeset(order = 1)
+    public String looksAtItsOwnRecord(
+        final MongoTemplate mongoTemplate) {
+
+      final var ownRecord = mongoTemplate.findAll(ChangesetInformation.class).getFirst();
+      timestampsSeenWhileTheStepsRan.add(ownRecord.getTimestamp());
+      return null;
+
+    }
+
+  }
+
+  @Test
+  void theRecordCarriesTheTimeBeforeTheStepRuns() {
+
+    applicationHaving(AStepReadingTheRecordWrittenAboutIt.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    // a process which is killed inside a step leaves its record behind. That record says when
+    // the step was started, so nobody has to guess whether it ran at all.
+    assertThat(timestampsSeenWhileTheStepsRan)
+        .singleElement()
+        .isNotNull();
 
   }
 

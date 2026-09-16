@@ -254,6 +254,10 @@ public class ChangesetApplier {
 
     logger.info("Applying new changeset '{}'", changeset.getId());
 
+    // The time is written with the record and not after it. A process which is killed inside
+    // the step leaves its record behind, and that record says when the step was started.
+    changeset.setTimestamp(Instant.now());
+
     // The record of the step is saved before the step runs. Another node of the cluster which
     // starts at the same moment and is a little bit faster has saved the same record already.
     // This node still has the step on its list, so this save is an insert and the id is taken.
@@ -262,8 +266,6 @@ public class ChangesetApplier {
     // be avoided.
     final ChangesetInformation persistedChangeset = mongoTemplate
         .save(changeset);
-
-    persistedChangeset.setTimestamp(Instant.now());
 
     try {
       final var reflectionMethod = method.reflectionMethod;

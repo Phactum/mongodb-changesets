@@ -68,8 +68,8 @@ configuration class is built before the beans it declares, so asking for it guar
 nothing tells you that.
 
 A step runs once per database. What ran is stored in the collection `ChangesetInformation`, one
-document per step, holding the author, the order, the time it ran and the rollback scripts it
-answered with. A later start reads that collection and skips what is in it.
+document per step, holding the author, the order, the time the step was started and the rollback
+scripts it answered with. A later start reads that collection and skips what is in it.
 
 The identity of a step is the class name of its bean plus the name of its method. Renaming either
 of the two makes the step run again on a database which already has it.
