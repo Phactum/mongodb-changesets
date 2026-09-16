@@ -61,6 +61,25 @@ public class ChangesetApplier {
 
   private static String SYSTEMPROPERTY_ROLLBACK_UNKNOWN = "initializer.rollback.unknown";
 
+  /**
+   * What the migration writes with. The primary has the record and the record is in the journal
+   * of that primary, on disk, before the step it belongs to runs.
+   * <p>
+   * The value names its <code>w</code>, and it has to. <code>WriteConcern.JOURNALED</code> of the
+   * driver says the same wish with <code>w</code> left open, and Spring Data does not pass such a
+   * value on: a MongoTemplate whose write result checking is <code>EXCEPTION</code> replaces every
+   * write concern without a <code>w</code>, or with a <code>w</code> below one, by a plain
+   * <code>ACKNOWLEDGED</code>, and the journal flag is dropped with it. An application which
+   * checks its write results would get no promise at all. With <code>w: 1</code> the value reaches
+   * the database untouched.
+   * <p>
+   * It is not <code>majority</code>. The promise is here for the node which wrote the record and
+   * then dies, and the journal is what brings that record back. A failover in the middle of a step
+   * is another matter: a step and the record about it are not one transaction, so no write concern
+   * makes the two survive or vanish together.
+   */
+  private static final WriteConcern WRITE_CONCERN_OF_THE_MIGRATION = WriteConcern.W1.withJournal(true);
+
   static class DbChangesetMethod {
 
     Object bean;
@@ -91,12 +110,10 @@ public class ChangesetApplier {
 
     logger.info("About to apply MongoDb changesets...");
 
-    // A record says that a step ran, and it has to survive a node which dies right after that
-    // record was written. So the migration writes journaled. The template belongs to the
-    // application, so the stricter promise lasts for the migration and the value the application
-    // had is put back afterwards, also when a step throws.
+    // The template belongs to the application, so the stricter promise lasts for the migration
+    // and the value the application had is put back afterwards, also when a step throws.
     final var writeConcernOfTheApplication = writeConcernOfTheApplication();
-    mongoTemplate.setWriteConcern(WriteConcern.JOURNALED);
+    mongoTemplate.setWriteConcern(WRITE_CONCERN_OF_THE_MIGRATION);
     try {
 
       initChangesetsCollection();

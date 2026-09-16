@@ -38,14 +38,18 @@ abstract class AgainstARealMongoDb {
 
   private String connectionString;
 
+  private String databaseName;
+
   private MongoTemplate mongoTemplate;
 
   @BeforeEach
   void startWithAnEmptyDatabase() {
 
-    connectionString = MONGODB.getConnectionString()
-        + "/test"
+    databaseName = "test"
         + UUID.randomUUID().toString().replace("-", "");
+    connectionString = MONGODB.getConnectionString()
+        + "/"
+        + databaseName;
     databaseFactory = new SimpleMongoClientDatabaseFactory(connectionString);
     mongoTemplate = new MongoTemplate(databaseFactory);
 
@@ -73,6 +77,15 @@ abstract class AgainstARealMongoDb {
   protected String connectionString() {
 
     return connectionString;
+
+  }
+
+  /**
+   * The database of this test, for a test which builds a client of its own and has to name it.
+   */
+  protected String databaseName() {
+
+    return databaseName;
 
   }
 
