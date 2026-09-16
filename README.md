@@ -61,6 +61,12 @@ bean is used for every step which names none of its own.
 While the application starts, and before the MongoDB repositories of the application are set up.
 So a repository is never used on a database which has not been migrated yet.
 
+Some other bean of yours may also need the migration to be done before it is built. Give that bean
+a `ChangesetApplier` parameter. Spring builds what a bean depends on first, so the migration has
+run by the time your bean is built. Take the applier and not `ChangesetAutoConfiguration`. A
+configuration class is built before the beans it declares, so asking for it guarantees nothing, and
+nothing tells you that.
+
 A step runs once per database. What ran is stored in the collection `ChangesetInformation`, one
 document per step, holding the author, the order, the time it ran and the rollback scripts it
 answered with. A later start reads that collection and skips what is in it.

@@ -22,7 +22,13 @@ import com.mongodb.client.MongoClient;
  * An application which holds the MongoDB mode somewhere else already can publish a
  * {@link ChangesetProperties} bean of its own. Then the key <code>mongodb.changesets.mode</code>
  * is not needed, because the bean of the application is used instead of the one created here.
+ * <p>
+ * Do not inject this class to wait for the migration. A configuration class is built before the
+ * beans it declares, so this one exists long before the applier has run. Such an injection
+ * compiles, the application starts, and the order is quietly gone. Inject
+ * {@link ChangesetApplier} instead.
  *
+ * @see ChangesetApplier
  * @see DbChangeset
  * @see DbChangesetConfiguration
  */

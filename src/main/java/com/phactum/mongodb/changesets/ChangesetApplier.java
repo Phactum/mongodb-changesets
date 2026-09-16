@@ -38,6 +38,11 @@ import jakarta.annotation.PostConstruct;
  * gets there first makes this save fail on the optimistic lock, instead of applying the step
  * twice.
  * <p>
+ * A bean which may only be built after the migration takes this one as a parameter. Spring builds
+ * what a bean depends on first, so the migration has run by the time that bean is built. This is
+ * the bean to ask for. The auto-configuration is not, because it exists before it declares this
+ * one.
+ * <p>
  * Two system properties exist for a developer. <code>initializer.rollback.all</code> rolls every
  * known step back and ends the process. <code>initializer.rollback.unknown</code> rolls back what
  * the database has and this software does not know any more, which is what a downgrade leaves
