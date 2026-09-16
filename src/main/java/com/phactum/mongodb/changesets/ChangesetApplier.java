@@ -20,6 +20,7 @@ import org.springframework.data.domain.Sort.Direction;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.index.Index;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.util.ReflectionUtils;
 
 import com.mongodb.WriteConcern;
 import com.phactum.mongodb.changesets.ChangesetProperties.MongoDbMode;
@@ -89,23 +90,57 @@ public class ChangesetApplier {
 
     logger.info("About to apply MongoDb changesets...");
 
+    // A record says that a step ran, and it has to survive a node which dies right after that
+    // record was written. So the migration writes journaled. The template belongs to the
+    // application, so the stricter promise lasts for the migration and the value the application
+    // had is put back afterwards, also when a step throws.
+    final var writeConcernOfTheApplication = writeConcernOfTheApplication();
     mongoTemplate.setWriteConcern(WriteConcern.JOURNALED);
+    try {
 
-    initChangesetsCollection();
+      initChangesetsCollection();
 
-    final var changesets = buildMapSortedByChangesetOrder();
+      final var changesets = buildMapSortedByChangesetOrder();
 
-    collectChangesetsByAnnotationsOnBeans(changesets);
+      collectChangesetsByAnnotationsOnBeans(changesets);
 
-    rollbackAllIfNecessary();
+      rollbackAllIfNecessary();
 
-    final var unknownChangesets = removeAlreadyAppliedChangesets(changesets);
+      final var unknownChangesets = removeAlreadyAppliedChangesets(changesets);
 
-    applyNewChangesets(changesets);
+      applyNewChangesets(changesets);
 
-    rollbackUnknownChangesets(unknownChangesets);
+      rollbackUnknownChangesets(unknownChangesets);
+
+    } finally {
+      mongoTemplate.setWriteConcern(writeConcernOfTheApplication);
+    }
 
     logger.info("Applying MongoDb changesets completed.");
+
+  }
+
+  /**
+   * The write concern the application has on its template, or <code>null</code> where it set
+   * none and the connection decides.
+   * <p>
+   * A MongoTemplate takes a write concern and hands none back, so the value is read from the
+   * field its setter writes. Without it this library would either leave the connection of the
+   * application changed for good or guess a value the application never asked for.
+   */
+  private WriteConcern writeConcernOfTheApplication() {
+
+    final var writeConcern = ReflectionUtils
+        .findField(MongoTemplate.class, "writeConcern", WriteConcern.class);
+    if (writeConcern == null) {
+      throw new IllegalStateException(
+          "Cannot read the write concern of the MongoTemplate. This version of Spring Data "
+              + "MongoDB keeps it somewhere else than in the field 'writeConcern', so the "
+              + "migration cannot give the template back the way it got it.");
+    }
+    ReflectionUtils.makeAccessible(writeConcern);
+
+    return (WriteConcern) ReflectionUtils.getField(writeConcern, mongoTemplate);
 
   }
 

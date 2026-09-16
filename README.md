@@ -81,6 +81,17 @@ the optimistic lock. That ends the second start, and the step is not applied twi
 A step which throws ends the start too, and the document written before it is taken back. So the
 next start tries that step again, instead of skipping a step which never happened.
 
+## What the migration does to your connection
+
+A record says that a step ran. It has to survive a node which dies right after that record was
+written, so the library writes journaled while it migrates. It sets the write concern
+`JOURNALED` on your `MongoTemplate` before the first step and puts your own value back when the
+last one is done, also when a step throws. So the connection is stricter for the time of the
+migration and is yours again afterwards.
+
+What your application writes later is written the way your application set its `MongoTemplate` up.
+If you want a promise like this one for your own writes, make it yourself.
+
 ## How the order is decided
 
 By the `order` of `@DbChangeset`, and by nothing else. The number is read across every changeset
