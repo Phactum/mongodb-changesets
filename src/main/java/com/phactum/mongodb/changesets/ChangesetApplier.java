@@ -110,8 +110,9 @@ public class ChangesetApplier {
 
     logger.info("About to apply MongoDb changesets...");
 
-    // The template belongs to the application, so the stricter promise lasts for the migration
-    // and the value the application had is put back afterwards, also when a step throws.
+    // The template belongs to the application, so the promise above holds for the time of the
+    // migration only and the value the application had is put back afterwards, also when a step
+    // throws. That also puts back a value which was stronger than the one of the migration.
     final var writeConcernOfTheApplication = writeConcernOfTheApplication();
     mongoTemplate.setWriteConcern(WRITE_CONCERN_OF_THE_MIGRATION);
     try {
