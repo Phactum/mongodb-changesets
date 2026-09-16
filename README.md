@@ -78,6 +78,9 @@ The step is written down before it runs. A second node of the cluster which star
 moment and is a little bit faster has written the same document already, so this write fails on
 the optimistic lock. That ends the second start, and the step is not applied twice.
 
+A step which throws ends the start too, and the document written before it is taken back. So the
+next start tries that step again, instead of skipping a step which never happened.
+
 ## How the order is decided
 
 By the `order` of `@DbChangeset`, and by nothing else. The number is read across every changeset
@@ -150,5 +153,13 @@ mvn install
 ```
 
 Java 21 and Spring Boot 4 are what this builds against.
+
+The tests talk to a real MongoDB in a container, so the build needs a Docker it can reach. What
+this library promises is what the database promises, so a stand-in would only test the stand-in.
+One test starts a second process of its own, because the rollback of everything ends the process
+it runs in.
+
+The build also measures how much of the code the tests reach. It fails below 85 percent of the
+instructions, and the goal is above 90. Each run writes its report to `target/site/jacoco`.
 
 Run `mvn spotless:apply` before you commit. The build fails on a formatting violation.
