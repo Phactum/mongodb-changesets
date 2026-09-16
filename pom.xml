@@ -120,6 +120,11 @@
             <!-- '@{jacoco.agent}' is resolved late, so coverage is also collected in forked
                  JVMs -->
             <argLine>@{jacoco.agent}</argLine>
+            <!-- With the default, Surefire hands the test JVM a jar which carries the class
+                 path in its manifest, and 'java.class.path' is then that one jar. A test which
+                 starts a second JVM needs the real list, so it is passed on the command line
+                 instead. RollbackAllNode is the test which needs it. -->
+            <useManifestOnlyJar>false</useManifestOnlyJar>
           </configuration>
         </plugin>
         <plugin>
