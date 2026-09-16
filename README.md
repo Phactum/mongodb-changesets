@@ -78,6 +78,9 @@ The step is written down before it runs. A second node of the cluster which star
 moment and is a little bit faster has written the same document already, so this write fails on
 the optimistic lock. That ends the second start, and the step is not applied twice.
 
+A step which throws ends the start too, and the document written before it is taken back. So the
+next start tries that step again, instead of skipping a step which never happened.
+
 ## How the order is decided
 
 By the `order` of `@DbChangeset`, and by nothing else. The number is read across every changeset
