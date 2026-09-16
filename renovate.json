@@ -1,0 +1,8 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>vanillabp/renovate-config"],
+  "description": [
+    "The preset lives in another organisation because this library is released next to the VanillaBP repositories and updates on the same rhythm. It is a public repository, so Renovate reads it from here as well, and the night window, the Vienna time zone and the grouping rules stay written down once.",
+    "Everything this repository builds on is covered by the groups of that preset: Spring Boot and Spring Framework, the testing dependencies including Testcontainers, and the GitHub Actions of the workflows."
+  ]
+}
