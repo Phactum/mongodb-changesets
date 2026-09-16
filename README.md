@@ -75,8 +75,10 @@ The identity of a step is the class name of its bean plus the name of its method
 of the two makes the step run again on a database which already has it.
 
 The step is written down before it runs. A second node of the cluster which starts at the same
-moment and is a little bit faster has written the same document already, so this write fails on
-the optimistic lock. That ends the second start, and the step is not applied twice.
+moment and is a little bit faster has written that document already. The slower node still has the
+step on its list, so its own write is an insert, and the `_id` of that document is taken. MongoDB
+refuses it with a duplicate key error. That ends the slower start, and the step is not applied
+twice.
 
 A step which throws ends the start too, and the document written before it is taken back. So the
 next start tries that step again, instead of skipping a step which never happened.

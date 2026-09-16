@@ -35,9 +35,10 @@ import jakarta.annotation.PostConstruct;
  * not seen. What ran is written into the collection of {@link ChangesetInformation}, and a later
  * start reads that collection to know what to skip.
  * <p>
- * A step is saved before it is applied. So a second node which starts at the same moment and
- * gets there first makes this save fail on the optimistic lock, instead of applying the step
- * twice.
+ * A step is saved before it is applied. A second node which starts at the same moment and gets
+ * there first has saved the same record already. This node still has the step on its list, so
+ * its own save is an insert and the id of that record is taken. MongoDB refuses it, which ends
+ * this start instead of applying the step twice.
  * <p>
  * A bean which may only be built after the migration takes this one as a parameter. Spring builds
  * what a bean depends on first, so the migration has run by the time that bean is built. This is
@@ -253,11 +254,12 @@ public class ChangesetApplier {
 
     logger.info("Applying new changeset '{}'", changeset.getId());
 
-    // The record of the step is saved before the step runs. Another node of the cluster
-    // which starts at the same moment and is a little bit faster has saved the same record
-    // already, and then this save fails on the optimistic lock. That failure ends this
-    // start, which is what should happen: the other node is applying the step, and applying
-    // it twice is what has to be avoided.
+    // The record of the step is saved before the step runs. Another node of the cluster which
+    // starts at the same moment and is a little bit faster has saved the same record already.
+    // This node still has the step on its list, so this save is an insert and the id is taken.
+    // MongoDB refuses it with a duplicate key error, and that ends this start. Which is what
+    // should happen: the other node is applying the step, and applying it twice is what has to
+    // be avoided.
     final ChangesetInformation persistedChangeset = mongoTemplate
         .save(changeset);
 
