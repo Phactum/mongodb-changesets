@@ -76,7 +76,7 @@ public class ChangesetApplier {
    * It is not <code>majority</code>. The promise is here for the node which wrote the record and
    * then dies, and the journal is what brings that record back. A failover in the middle of a step
    * is another matter: a step and the record about it are not one transaction, so no write concern
-   * makes the two survive or vanish together.
+   * makes the two survive or vanish together. This is decision 5 in the repository's DECISIONS.md.
    */
   private static final WriteConcern WRITE_CONCERN_OF_THE_MIGRATION = WriteConcern.W1.withJournal(true);
 

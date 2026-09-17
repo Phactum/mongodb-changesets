@@ -49,3 +49,29 @@ A second platform, Quarkus for example, would be a module of this repository, na
 `mongodb-changesets-quarkus`, and the part which knows no platform would move into a module of its
 own. That cut is not made today, because a cut made for a platform which does not exist is a guess
 about what that platform will need.
+
+## 5. The migration writes with `w: 1` and the journal, and it names the `w` on purpose
+
+While a migration runs, the library writes with `WriteConcern.W1.withJournal(true)`, and it puts
+the value of the application back afterwards.
+
+The journal is the point. A record says that a step ran, and it has to survive the node which
+wrote it and then died; the journal is what brings it back. The `w` is named because Spring Data
+throws the promise away otherwise. `MongoTemplate.potentiallyForceAcknowledgedWrite` replaces
+every write concern whose `w` is unset with a plain acknowledged write as soon as the application
+checks its write results, and the driver leaves a server-default concern out of the command
+altogether. `WriteConcern.JOURNALED` is `j: true` with no `w`, so such an application used to send
+no promise at all. Naming `w: 1` is what makes the journal reach the database.
+
+It is not `majority`, and that is not thrift. A step and the record about it are not one
+transaction, and the record is written before the step runs. A rollback which drops the record
+drops the work of the step with it, which is the harmless direction. The harmful one is a record
+which survives while the change is gone, and `majority` on the record makes exactly that more
+likely, because a majority-committed record is never rolled back while the writes of the step
+after it still can be. So `majority` would be stricter in the wrong half, and it would make every
+record wait for replication.
+
+What the library does not do is raise the promise of an application which asked for more. An
+application writing with `majority` migrates with `w: 1` for the length of the migration. Whether
+the promise of the migration should grow out of the one the application set is written down as its
+own question.
