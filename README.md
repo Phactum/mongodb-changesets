@@ -1,6 +1,7 @@
 # MongoDB Changesets
 
 [![Coverage](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fphactum.github.io%2Fmongodb-changesets%2Fcoverage-report%2Findex.html&search=Total.*%3F.([0-9]%2B)[^0-9]*%3F%25&replace=%241%25&flags=m&label=Coverage&color=green&cacheSeconds=60)](https://phactum.github.io/mongodb-changesets/coverage-report)
+[![Apache License V.2](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 
 A database migration for MongoDB, written in Java. Flyway and Liquibase do this for a relational
 database. This does it for MongoDB, and a migration step is a method of a Spring bean rather than
