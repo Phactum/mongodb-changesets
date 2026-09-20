@@ -89,29 +89,42 @@ next start tries that step again, instead of skipping a step which never happene
 ## What the migration does to your connection
 
 A record says that a step ran. It has to survive a node which dies right after that record was
-written, so the library writes with `w: 1, j: true` while it migrates. The primary answers once
-the record is in its journal, on disk. The step runs after that answer.
+written, so the library asks for the journal while it migrates. The primary answers once the
+record is in its journal, on disk. The step runs after that answer.
 
-The library sets that write concern on your `MongoTemplate` before the first step and puts your
-own value back when the last one is done, also when a step throws. Your own value does not apply
-while the migration runs, not even where it is the stronger one. An application which writes with
-`majority` writes its migration steps with `w: 1, j: true` like every other one, and has
-`majority` back once the last step is done.
+The journal is added to the promise your application writes with, and the `w` of that promise is
+kept. An application writing with `majority` migrates with `w: majority, j: true`. So a migration
+is never weaker than the rest of what your application writes.
 
-The promise names its `w` on purpose. `WriteConcern.JOURNALED` of the MongoDB driver says `j: true`
-and leaves `w` open, and Spring Data does not pass such a value on. A `MongoTemplate` whose
-`WriteResultChecking` is `EXCEPTION` replaces every write concern without a `w`, or with a `w`
-below one, by a plain `ACKNOWLEDGED`, and the journal flag is dropped with it. So an application
-which checks its write results would get no promise at all. `w: 1` is the same wish with the `w`
-spelled out, and it reaches the database either way.
+Your promise is read where you set it. A value on your `MongoTemplate` is the first place. Where
+your template carries none, the connection decides, and a URL like `mongodb://host/db?w=majority`
+is read as the majority it asks for.
 
-The promise is not `majority`. It is here for the node which wrote the record and then dies, and
-the journal brings that record back when the node starts again. A failover in the middle of a step
-is another matter. A step and the record about it are not one transaction, so no write concern
-makes the two survive or vanish together, and `majority` would not change that.
+Where there is no `w` to grow from, the migration writes with `w: 1, j: true`. That is the case
+for an application which names no write concern anywhere. It is also the case for `w: 0`: such a
+write is never answered, so the step after it would build on a record no node confirmed, and the
+MongoDB driver refuses the journal next to a `w` of zero anyway.
 
-What your application writes later is written the way your application set its `MongoTemplate` up.
-If you want a promise like this one for your own writes, make it yourself.
+The library sets the grown promise on your `MongoTemplate` before the first step and gives the
+template back when the last one is done, also when a step throws. Your own value is on it again
+afterwards. A template which carried none carries none again, so the connection decides for your
+application as it did before.
+
+The promise names its `w` on purpose. `WriteConcern.JOURNALED` of the MongoDB driver says
+`j: true` and leaves `w` open, and Spring Data does not pass such a value on. A `MongoTemplate`
+whose `WriteResultChecking` is `EXCEPTION` replaces every write concern without a `w`, or with a
+`w` below one, by a plain `ACKNOWLEDGED`, and the journal flag is dropped with it. So an
+application which checks its write results would get no promise at all. A named `w` reaches the
+database either way, and a word like `majority` passes that check untouched.
+
+What the library does not do is raise your promise. A record is written before the step it
+belongs to runs, and the two are not one transaction. A rollback which drops the record drops the
+work of the step with it, which is the harmless direction. A record written with more than the
+step makes the harmful direction more likely, so the migration asks for what you ask for and adds
+nothing but the journal.
+
+What your application writes later is written the way your application set its `MongoTemplate`
+up. If you want a promise like this one for your own writes, make it yourself.
 
 ## How the order is decided
 

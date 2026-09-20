@@ -50,7 +50,9 @@ A second platform, Quarkus for example, would be a module of this repository, na
 own. That cut is not made today, because a cut made for a platform which does not exist is a guess
 about what that platform will need.
 
-## 5. The migration writes with `w: 1` and the journal, and it names the `w` on purpose
+## 5. The migration writes with `w: 1` and the journal, and it names the `w` on purpose (superseded by decision 6)
+
+Superseded by decision 6. What follows is what this repository held before, and it is kept because the number stays readable for a release which cites it.
 
 While a migration runs, the library writes with `WriteConcern.W1.withJournal(true)`, and it puts
 the value of the application back afterwards.
@@ -75,3 +77,52 @@ What the library does not do is raise the promise of an application which asked 
 application writing with `majority` migrates with `w: 1` for the length of the migration. Whether
 the promise of the migration should grow out of the one the application set is written down as its
 own question.
+
+## 6. The write concern of the migration grows out of the one the application uses
+
+The library reads what the application writes with, adds `j: true` to it and keeps the `w`. An
+application writing with `majority` migrates with `majority` and the journal. Where the
+application promises nothing to grow from, the migration writes with `w: 1` and the journal, and
+that is also what happens with `w: 0`, because a write nobody answers tells the next step nothing.
+The value the template carried is put back when the last step is done, and a template which
+carried none carries none again.
+
+The promise of the application is not only the value on the template. A connection string like
+`mongodb://host/db?w=majority` leaves that value empty while every write still asks for a
+majority, so the library reads the collection where the template says nothing.
+
+The reason for growing instead of replacing is that a library must not write weaker than the
+application it runs in. The old decision replaced the promise of the application with a fixed
+`w: 1` for the length of the migration. An application writing with `majority` then had its
+migration written weaker than everything else it does, which is a surprise nobody asked for.
+
+The journal is still the point of the promise. A record says that a step ran, and it has to
+survive the node which wrote it and then died. The `w` is spelled out for the same reason as
+before: `MongoTemplate.potentiallyForceAcknowledgedWrite` replaces every write concern whose `w`
+is unset, or below one, by a plain acknowledged write as soon as the application checks its write
+results, and the driver leaves a server-default concern out of the command altogether. A word like
+`majority` passes that check untouched, so the grown promise reaches the database.
+
+What the library does not do is raise the promise on its own. A fixed `majority` with the journal
+for every migration was the other candidate, and it was turned down for four reasons.
+
+`majority` is no upper bound. A write concern mode can ask for more than a majority, because a
+majority may sit in one data centre and a mode may forbid exactly that, and in a set of seven
+nodes `w: 5` is stricter than the majority of four. So a fixed value would not even give what it
+was picked for. The calculation does, because it starts from what the application asks for and
+compares nothing.
+
+Stricter on the record is not better. The record is written before the step runs, and the two are
+not one transaction. A rollback which drops the record drops the work of the step with it, which
+is the harmless direction. The harmful one is a record which survives while the change is gone,
+and a record written with more than the step makes that more likely. This is why the library
+raises nothing by itself. It only refuses to lower.
+
+The price is paid while the application starts. `majority` with the journal waits for replication
+per record, and without a `wtimeout` it waits without end. A set which lost a node, where the
+application itself would write with `w: 1`, would hold up the start with a cost its operator never
+chose.
+
+The Azure Cosmos mode may not take a `majority`, and nothing here proves that it does. The
+calculation passes on what the application itself uses, so it cannot ask that database for
+something the application knows it cannot have.

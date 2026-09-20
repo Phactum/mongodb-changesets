@@ -62,8 +62,9 @@ public class ChangesetApplier {
   private static String SYSTEMPROPERTY_ROLLBACK_UNKNOWN = "initializer.rollback.unknown";
 
   /**
-   * What the migration writes with. The primary has the record and the record is in the journal
-   * of that primary, on disk, before the step it belongs to runs.
+   * What the migration writes with where the application promises nothing to grow from. The
+   * primary has the record and the record is in the journal of that primary, on disk, before the
+   * step it belongs to runs.
    * <p>
    * The value names its <code>w</code>, and it has to. <code>WriteConcern.JOURNALED</code> of the
    * driver says the same wish with <code>w</code> left open, and Spring Data does not pass such a
@@ -72,13 +73,9 @@ public class ChangesetApplier {
    * <code>ACKNOWLEDGED</code>, and the journal flag is dropped with it. An application which
    * checks its write results would get no promise at all. With <code>w: 1</code> the value reaches
    * the database untouched.
-   * <p>
-   * It is not <code>majority</code>. The promise is here for the node which wrote the record and
-   * then dies, and the journal is what brings that record back. A failover in the middle of a step
-   * is another matter: a step and the record about it are not one transaction, so no write concern
-   * makes the two survive or vanish together. This is decision 5 in the repository's DECISIONS.md.
    */
-  private static final WriteConcern WRITE_CONCERN_OF_THE_MIGRATION = WriteConcern.W1.withJournal(true);
+  private static final WriteConcern WRITE_CONCERN_WHERE_THE_APPLICATION_PROMISES_NOTHING = WriteConcern.W1
+      .withJournal(true);
 
   static class DbChangesetMethod {
 
@@ -110,11 +107,13 @@ public class ChangesetApplier {
 
     logger.info("About to apply MongoDb changesets...");
 
-    // The template belongs to the application, so the promise above holds for the time of the
-    // migration only and the value the application had is put back afterwards, also when a step
-    // throws. That also puts back a value which was stronger than the one of the migration.
-    final var writeConcernOfTheApplication = writeConcernOfTheApplication();
-    mongoTemplate.setWriteConcern(WRITE_CONCERN_OF_THE_MIGRATION);
+    // The template belongs to the application, so the promise of the migration holds for the time
+    // of the migration only. What the template carried is put back afterwards, also when a step
+    // throws, and a template which carried nothing carries nothing again. Putting the grown value
+    // back would leave the application with a promise it never asked for.
+    final var writeConcernOnTheTemplate = writeConcernSetOnTheTemplate();
+    final var writeConcernOfTheApplication = writeConcernOfTheApplication(writeConcernOnTheTemplate);
+    mongoTemplate.setWriteConcern(writeConcernGrownFrom(writeConcernOfTheApplication));
     try {
 
       initChangesetsCollection();
@@ -132,7 +131,7 @@ public class ChangesetApplier {
       rollbackUnknownChangesets(unknownChangesets);
 
     } finally {
-      mongoTemplate.setWriteConcern(writeConcernOfTheApplication);
+      mongoTemplate.setWriteConcern(writeConcernOnTheTemplate);
     }
 
     logger.info("Applying MongoDb changesets completed.");
@@ -140,14 +139,14 @@ public class ChangesetApplier {
   }
 
   /**
-   * The write concern the application has on its template, or <code>null</code> where it set
-   * none and the connection decides.
+   * The write concern the application set on its template, or <code>null</code> where it set none
+   * and the connection decides.
    * <p>
    * A MongoTemplate takes a write concern and hands none back, so the value is read from the
-   * field its setter writes. Without it this library would either leave the connection of the
-   * application changed for good or guess a value the application never asked for.
+   * field its setter writes. Without it this library would either leave the template of the
+   * application changed for good or give it back a value the application never asked for.
    */
-  private WriteConcern writeConcernOfTheApplication() {
+  private WriteConcern writeConcernSetOnTheTemplate() {
 
     final var writeConcern = ReflectionUtils
         .findField(MongoTemplate.class, "writeConcern", WriteConcern.class);
@@ -160,6 +159,65 @@ public class ChangesetApplier {
     ReflectionUtils.makeAccessible(writeConcern);
 
     return (WriteConcern) ReflectionUtils.getField(writeConcern, mongoTemplate);
+
+  }
+
+  /**
+   * What the application writes with, which is what the promise of the migration grows out of.
+   * <p>
+   * A value on the template wins, because that is the one every write through the template uses.
+   * Where the template carries none, the promise hangs on the connection: a URL like
+   * <code>mongodb://host/db?w=majority</code> leaves the field of the template empty while every
+   * write still asks for a majority. The collection is what knows that value, so it is read there
+   * instead of being guessed. Guessing would make the migration write weaker than the application
+   * in exactly the case this calculation exists for.
+   * <p>
+   * The answer is never <code>null</code>. A collection always names a write concern, and where
+   * nothing was configured anywhere that is the <code>ACKNOWLEDGED</code> of the driver, which
+   * names no <code>w</code> of its own.
+   */
+  private WriteConcern writeConcernOfTheApplication(
+      final WriteConcern writeConcernOnTheTemplate) {
+
+    if (writeConcernOnTheTemplate != null) {
+      return writeConcernOnTheTemplate;
+    }
+
+    return mongoTemplate
+        .getCollection(ChangesetInformation.COLLECTION_NAME)
+        .getWriteConcern();
+
+  }
+
+  /**
+   * The promise of the migration, grown out of the one the application writes with: the same
+   * <code>w</code>, plus the journal.
+   * <p>
+   * The journal is the point of the promise, and the <code>w</code> of the application is kept
+   * because a library must not write weaker than the application it runs in. An application
+   * writing with <code>majority</code> migrates with <code>majority</code> and the journal. This
+   * is decision 6 in the repository's DECISIONS.md.
+   * <p>
+   * Two promises give nothing to grow from. One names no <code>w</code>, and the database never
+   * sees such a value, which is what
+   * {@link #WRITE_CONCERN_WHERE_THE_APPLICATION_PROMISES_NOTHING} is about. The other is
+   * <code>w: 0</code>, which nobody
+   * answers, so the next step would build on a record no node confirmed; the driver refuses the
+   * journal next to a <code>w</code> of zero anyway. Both migrate with <code>w: 1</code> and the
+   * journal.
+   */
+  private static WriteConcern writeConcernGrownFrom(
+      final WriteConcern writeConcernOfTheApplication) {
+
+    final var w = writeConcernOfTheApplication.getWObject();
+    if (w == null) {
+      return WRITE_CONCERN_WHERE_THE_APPLICATION_PROMISES_NOTHING;
+    }
+    if ((w instanceof Number number) && (number.intValue() < 1)) {
+      return WRITE_CONCERN_WHERE_THE_APPLICATION_PROMISES_NOTHING;
+    }
+
+    return writeConcernOfTheApplication.withJournal(true);
 
   }
 

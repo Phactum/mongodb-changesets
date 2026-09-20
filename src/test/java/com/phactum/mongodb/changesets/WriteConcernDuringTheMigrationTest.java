@@ -26,9 +26,11 @@ import com.mongodb.event.CommandStartedEvent;
  * application.
  * <p>
  * A record of the migration says that a step ran. It has to survive a node which dies right
- * after writing it, so the migration asks for <code>w: 1, j: true</code>. The template it writes
- * through belongs to the application, so the stricter promise lasts for the migration only and
- * the value the application had is put back afterwards.
+ * after writing it, so the migration adds <code>j: true</code> to what the application promises
+ * and keeps the <code>w</code> of the application. Where the application promises nothing to
+ * grow from, the migration writes with <code>w: 1, j: true</code>. The template it writes
+ * through belongs to the application, so the promise of the migration lasts for the migration
+ * only and the template is given back the way it was handed over.
  * <p>
  * Two things are tested here, and they are not the same. What the library sets on the template
  * is one, and a template which writes down every value it is given says that. What MongoDB is
@@ -38,10 +40,11 @@ import com.mongodb.event.CommandStartedEvent;
 class WriteConcernDuringTheMigrationTest extends AgainstARealMongoDb {
 
   /**
-   * What the library promises for the time of the migration. The primary has the record and the
-   * record is in the journal of that primary, on disk.
+   * What the library promises where the application gives it nothing to grow from. The primary
+   * has the record and the record is in the journal of that primary, on disk.
    */
-  static final WriteConcern whatTheMigrationPromises = WriteConcern.W1.withJournal(true);
+  static final WriteConcern whatTheMigrationPromisesWithoutOneToGrowFrom = WriteConcern.W1
+      .withJournal(true);
 
   /**
    * The write concern each step found on the template it was handed, in the order the steps ran.
@@ -122,7 +125,7 @@ class WriteConcernDuringTheMigrationTest extends AgainstARealMongoDb {
   }
 
   @Test
-  void theMigrationWritesWithItsOwnPromiseAndGivesTheTemplateBackAsItWas() {
+  void theMigrationAddsTheJournalToThePromiseOfTheApplicationAndGivesTheTemplateBack() {
 
     final var template = new TemplateWritingDownItsWriteConcern(databaseFactory());
     // this is what the application asked for, long before the migration
@@ -131,10 +134,11 @@ class WriteConcernDuringTheMigrationTest extends AgainstARealMongoDb {
     applicationOf(template, AStepLookingAtTheWriteConcern.class)
         .run(context -> assertThat(context).hasNotFailed());
 
-    assertThat(whatTheStepsSaw).containsExactly(whatTheMigrationPromises);
+    final var whatTheMigrationPromised = WriteConcern.W1.withJournal(true);
+    assertThat(whatTheStepsSaw).containsExactly(whatTheMigrationPromised);
     assertThat(template.currentValue()).isEqualTo(WriteConcern.W1);
     assertThat(template.valuesSet())
-        .containsExactly(WriteConcern.W1, whatTheMigrationPromises, WriteConcern.W1);
+        .containsExactly(WriteConcern.W1, whatTheMigrationPromised, WriteConcern.W1);
 
   }
 
@@ -151,7 +155,7 @@ class WriteConcernDuringTheMigrationTest extends AgainstARealMongoDb {
             .rootCause()
             .hasMessage("the database said no"));
 
-    assertThat(whatTheStepsSaw).containsExactly(whatTheMigrationPromises);
+    assertThat(whatTheStepsSaw).containsExactly(WriteConcern.W1.withJournal(true));
     assertThat(template.currentValue()).isEqualTo(WriteConcern.W1);
 
   }
@@ -164,9 +168,98 @@ class WriteConcernDuringTheMigrationTest extends AgainstARealMongoDb {
     applicationOf(template, AStepLookingAtTheWriteConcern.class)
         .run(context -> assertThat(context).hasNotFailed());
 
-    // the application left the write concern of its template unset, so the connection decides
-    // again once the migration is done
-    assertThat(template.valuesSet()).containsExactly(whatTheMigrationPromises, null);
+    // neither the template nor the connection of this test names a 'w', so the migration has
+    // nothing to grow from and writes with its own promise. Afterwards the template carries no
+    // value again and the connection decides, which is how the application had it.
+    assertThat(template.valuesSet())
+        .containsExactly(whatTheMigrationPromisesWithoutOneToGrowFrom, null);
+
+  }
+
+  @Test
+  void anApplicationWritingWithMajorityMigratesWithMajorityAndTheJournal() {
+
+    final var template = new TemplateWritingDownItsWriteConcern(databaseFactory());
+    template.setWriteConcern(WriteConcern.MAJORITY);
+
+    applicationOf(template, AStepLookingAtTheWriteConcern.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    // a library which writes weaker than the application it runs in would be a surprise, so the
+    // 'majority' stays and only the journal is added
+    assertThat(whatTheStepsSaw).containsExactly(WriteConcern.MAJORITY.withJournal(true));
+    assertThat(template.valuesSet())
+        .containsExactly(
+            WriteConcern.MAJORITY,
+            WriteConcern.MAJORITY.withJournal(true),
+            WriteConcern.MAJORITY);
+
+  }
+
+  @Test
+  void aPromiseWhichOnlyTheConnectionCarriesIsGrownFromTooAndTheTemplateStaysEmpty() throws Exception {
+
+    // the application names its promise in the URL and sets nothing on the template. The field
+    // of the template is empty in this case, while every write still asks for a majority.
+    final var databaseFactory = new SimpleMongoClientDatabaseFactory(
+        connectionString()
+            + "?w=majority");
+    try {
+
+      final var template = new TemplateWritingDownItsWriteConcern(databaseFactory);
+
+      applicationOf(template, AStepLookingAtTheWriteConcern.class)
+          .run(context -> assertThat(context).hasNotFailed());
+
+      assertThat(whatTheStepsSaw).containsExactly(WriteConcern.MAJORITY.withJournal(true));
+      // the template had no value of its own, so it has none afterwards either
+      assertThat(template.valuesSet())
+          .containsExactly(WriteConcern.MAJORITY.withJournal(true), null);
+
+    } finally {
+      databaseFactory.destroy();
+    }
+
+  }
+
+  @Test
+  void anApplicationWhichWritesUnacknowledgedMigratesWithWOneAndTheJournal() {
+
+    final var template = new TemplateWritingDownItsWriteConcern(databaseFactory());
+    // 'w: 0' is a write nobody answers. A record written that way tells the next step nothing,
+    // and the driver refuses the journal next to it, so the migration writes its own promise.
+    template.setWriteConcern(WriteConcern.UNACKNOWLEDGED);
+
+    applicationOf(template, AStepLookingAtTheWriteConcern.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    assertThat(whatTheStepsSaw).containsExactly(whatTheMigrationPromisesWithoutOneToGrowFrom);
+    assertThat(template.valuesSet())
+        .containsExactly(
+            WriteConcern.UNACKNOWLEDGED,
+            whatTheMigrationPromisesWithoutOneToGrowFrom,
+            WriteConcern.UNACKNOWLEDGED);
+
+  }
+
+  @Test
+  void aNumberOfTheApplicationIsKeptEvenWhereTheClusterCannotAnswerIt() {
+
+    final var template = new TemplateWritingDownItsWriteConcern(databaseFactory());
+    // one server answers this test, so a 'w: 2' cannot be met here. The migration keeps the
+    // number all the same, because lowering it would write weaker than the application asked
+    // for, and the start ends with the error of the database.
+    template.setWriteConcern(WriteConcern.W2);
+
+    applicationOf(template, AStepLookingAtTheWriteConcern.class)
+        .run(context -> assertThat(context).hasFailed());
+
+    assertThat(whatTheStepsSaw).isEmpty();
+    assertThat(template.valuesSet())
+        .containsExactly(
+            WriteConcern.W2,
+            WriteConcern.W2.withJournal(true),
+            WriteConcern.W2);
 
   }
 
@@ -255,7 +348,7 @@ class WriteConcernDuringTheMigrationTest extends AgainstARealMongoDb {
     assertThat(whatTheDatabaseWasHanded.writeConcerns())
         .isNotEmpty()
         .allSatisfy(writeConcern -> assertThat(writeConcern)
-            .isEqualTo(whatTheMigrationPromises.asDocument()));
+            .isEqualTo(whatTheMigrationPromisesWithoutOneToGrowFrom.asDocument()));
 
   }
 
@@ -280,7 +373,33 @@ class WriteConcernDuringTheMigrationTest extends AgainstARealMongoDb {
     assertThat(whatTheDatabaseWasHanded.writeConcerns())
         .isNotEmpty()
         .allSatisfy(writeConcern -> assertThat(writeConcern)
-            .isEqualTo(whatTheMigrationPromises.asDocument()));
+            .isEqualTo(whatTheMigrationPromisesWithoutOneToGrowFrom.asDocument()));
+
+  }
+
+  @Test
+  void theMajorityOfTheApplicationReachesTheDatabaseAlongWithTheJournal() {
+
+    final var whatTheDatabaseWasHanded = new WhatTheDatabaseWasHanded();
+    try (var client = clientTelling(whatTheDatabaseWasHanded)) {
+
+      final var template = new MongoTemplate(
+          new SimpleMongoClientDatabaseFactory(client, databaseName()));
+      template.setWriteConcern(WriteConcern.MAJORITY);
+      // Spring Data replaces a write concern which names no 'w' or a 'w' below one. A word like
+      // 'majority' is none of the two, so the grown promise survives the way to the driver even
+      // in an application which checks its write results.
+      template.setWriteResultChecking(WriteResultChecking.EXCEPTION);
+
+      applicationOf(template, AStepDoingNothing.class)
+          .run(context -> assertThat(context).hasNotFailed());
+
+    }
+
+    assertThat(whatTheDatabaseWasHanded.writeConcerns())
+        .isNotEmpty()
+        .allSatisfy(writeConcern -> assertThat(writeConcern)
+            .isEqualTo(WriteConcern.MAJORITY.withJournal(true).asDocument()));
 
   }
 
