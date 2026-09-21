@@ -18,6 +18,9 @@ import org.testcontainers.mongodb.MongoDBContainer;
  * server, so every test gets a database of its own and a step which ran in one test is unknown to
  * the next.
  * <p>
+ * The server is a replica set of one node, so a test can write with a promise which only a
+ * replica set answers.
+ * <p>
  * The MongoTemplate is built once per test and handed to every application start of that test.
  * That is how one test starts the same application twice against the same database.
  */
@@ -26,7 +29,20 @@ abstract class AgainstARealMongoDb {
   // started once for the whole run and stopped by the Testcontainers reaper when the JVM ends. A
   // '@Container' field would start and stop a server per test class, which buys nothing because
   // the tests never share a database anyway.
-  private static final MongoDBContainer MONGODB = new MongoDBContainer("mongo:7.0");
+  //
+  // 'withReplicaSet' starts the node with '--replSet' and runs 'rs.initiate()' on it. Without it
+  // the node is a standalone, and a standalone answers every command about replication with
+  // 'not running with --replSet'. A write promise other than a plain number could then not be
+  // tested at all. One node is enough for 'majority' and for a write concern mode, because that
+  // node is the whole set and so it is its own majority.
+  //
+  // The set announces its only member under the hostname of the container, and that name means
+  // nothing outside Docker. The tests do not trip over it because they connect with one host and
+  // no name of the set in the url, and the driver then talks to that one server directly. A url
+  // which names the set, or one which lists several hosts, would send the driver looking for the
+  // announced hostname and the test would not reach the database.
+  private static final MongoDBContainer MONGODB = new MongoDBContainer("mongo:7.0")
+      .withReplicaSet();
 
   static {
 
