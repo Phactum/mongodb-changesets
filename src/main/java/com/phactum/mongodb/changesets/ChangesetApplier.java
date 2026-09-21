@@ -111,7 +111,7 @@ public class ChangesetApplier {
     // of the migration only. What the template carried is put back afterwards, also when a step
     // throws, and a template which carried nothing carries nothing again. Putting the grown value
     // back would leave the application with a promise it never asked for.
-    final var writeConcernOnTheTemplate = writeConcernSetOnTheTemplate();
+    final var writeConcernOnTheTemplate = writeConcernSetOn(mongoTemplate);
     final var writeConcernOfTheApplication = writeConcernOfTheApplication(writeConcernOnTheTemplate);
     mongoTemplate.setWriteConcern(writeConcernGrownFrom(writeConcernOfTheApplication));
     try {
@@ -145,16 +145,27 @@ public class ChangesetApplier {
    * A MongoTemplate takes a write concern and hands none back, so the value is read from the
    * field its setter writes. Without it this library would either leave the template of the
    * application changed for good or give it back a value the application never asked for.
+   * <p>
+   * This is the one place where this library reaches inside Spring Data MongoDB, so it is the
+   * one place a new Spring Data MongoDB can break. That is why it is not private. A test calls
+   * it and writes through the same template, so a build says what an application would otherwise
+   * learn while it starts.
    */
-  private WriteConcern writeConcernSetOnTheTemplate() {
+  static WriteConcern writeConcernSetOn(
+      final MongoTemplate mongoTemplate) {
 
     final var writeConcern = ReflectionUtils
         .findField(MongoTemplate.class, "writeConcern", WriteConcern.class);
     if (writeConcern == null) {
       throw new IllegalStateException(
-          "Cannot read the write concern of the MongoTemplate. This version of Spring Data "
-              + "MongoDB keeps it somewhere else than in the field 'writeConcern', so the "
-              + "migration cannot give the template back the way it got it.");
+          "The MongoDB migration cannot read the write concern of the MongoTemplate. Spring "
+              + "Data MongoDB has no method which hands that value back, so the migration reads "
+              + "the private field 'writeConcern'. The Spring Data MongoDB on the classpath has "
+              + "no such field any more. Without the value the migration cannot grow its own "
+              + "promise out of the one of this application, and it cannot give the template "
+              + "back the way it got it. Use a version of mongodb-changesets which knows this "
+              + "Spring Data MongoDB, or report the upgrade to its maintainers if there is none "
+              + "yet.");
     }
     ReflectionUtils.makeAccessible(writeConcern);
 
