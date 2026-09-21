@@ -350,6 +350,12 @@ public class ChangesetApplier {
         .save(changeset);
 
     try {
+      // The promise of the migration sits on the template, so it holds for what the step writes
+      // through this template and for nothing else. A collection the step takes out of it, and a
+      // client the step opens itself, write with what their connection asks for. This library
+      // does not see that happen and cannot reach it, so the record of such a step can promise
+      // more than the work of the step. The documentation warns about it, which is all that is
+      // left to do here.
       final var reflectionMethod = method.reflectionMethod;
       final Object rollbackScript;
       if (reflectionMethod.getParameterCount() == 1) {

@@ -13,6 +13,11 @@ import java.lang.annotation.Target;
  * name of the method, so renaming either of the two makes the step run again on a database
  * which already has it.
  * <p>
+ * The step writes with the promise of the migration while it writes through the MongoTemplate it
+ * was handed. A collection it takes out of that template, and a client it opens itself, write
+ * with what their connection asks for. That can be less than what the record about the step was
+ * written with, and such a record survives a failover which the work of the step does not.
+ * <p>
  * The method answers with a MongoDb script which undoes what it did, or with a
  * java.util.List of scripts where one is not enough. A rollback runs those scripts. The
  * return type has to be a String or a Collection of Strings, and a step with nothing to undo
