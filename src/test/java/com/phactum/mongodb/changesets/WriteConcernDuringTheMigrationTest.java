@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.bson.BsonDocument;
+import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.mongodb.MongoDatabaseFactory;
@@ -50,6 +51,11 @@ class WriteConcernDuringTheMigrationTest extends AgainstARealMongoDb {
    * The write concern each step found on the template it was handed, in the order the steps ran.
    */
   static final List<WriteConcern> whatTheStepsSaw = new ArrayList<>();
+
+  /**
+   * The name of a write concern mode this test teaches the replica set.
+   */
+  private static final String ONE_TAGGED_NODE = "oneTaggedNode";
 
   @BeforeEach
   void forgetWhatEarlierTestsSaw() {
@@ -400,6 +406,79 @@ class WriteConcernDuringTheMigrationTest extends AgainstARealMongoDb {
         .isNotEmpty()
         .allSatisfy(writeConcern -> assertThat(writeConcern)
             .isEqualTo(WriteConcern.MAJORITY.withJournal(true).asDocument()));
+
+  }
+
+  /**
+   * Teaches the replica set a write concern mode, so a test can write with a name of its own
+   * instead of a number or the word <code>majority</code>.
+   * <p>
+   * A mode names how many nodes of which tag have to answer a write. The set of this test has one
+   * member, so the member gets a tag and the mode asks for one node carrying it. That is a
+   * promise the set can keep, and it is the kind of promise which says more than a majority does,
+   * because a majority may sit anywhere while a tag says where.
+   * <p>
+   * The set keeps the mode for the rest of the run. That changes nothing for the other tests,
+   * because a mode is only a name they never use.
+   */
+  private void teachTheSetAWriteConcernMode() {
+
+    try (var client = MongoClients.create(connectionString())) {
+
+      final var admin = client.getDatabase("admin");
+      final var configuration = admin
+          .runCommand(new Document("replSetGetConfig", 1))
+          .get("config", Document.class);
+      configuration
+          .getList("members", Document.class)
+          .get(0)
+          .put("tags", new Document("dc", "the only one"));
+      configuration
+          .get("settings", Document.class)
+          .put("getLastErrorModes", new Document(ONE_TAGGED_NODE, new Document("dc", 1)));
+      // a new configuration is only taken where it counts up from the one the set has
+      configuration.put("version", configuration.getInteger("version") + 1);
+      admin.runCommand(new Document("replSetReconfig", configuration));
+
+    }
+
+  }
+
+  @Test
+  void aWriteConcernModeOfTheApplicationReachesTheDatabaseAlongWithTheJournal() {
+
+    teachTheSetAWriteConcernMode();
+    final var whatTheApplicationPromises = new WriteConcern(ONE_TAGGED_NODE);
+    final var whatTheMigrationPromises = whatTheApplicationPromises.withJournal(true);
+
+    final var whatTheDatabaseWasHanded = new WhatTheDatabaseWasHanded();
+    try (var client = clientTelling(whatTheDatabaseWasHanded)) {
+
+      final var template = new TemplateWritingDownItsWriteConcern(
+          new SimpleMongoClientDatabaseFactory(client, databaseName()));
+      // a name is neither an empty 'w' nor a 'w' below one, so Spring Data leaves it alone even
+      // in an application which checks its write results
+      template.setWriteConcern(whatTheApplicationPromises);
+      template.setWriteResultChecking(WriteResultChecking.EXCEPTION);
+
+      applicationOf(template, AStepLookingAtTheWriteConcern.class)
+          .run(context -> assertThat(context).hasNotFailed());
+
+      assertThat(whatTheStepsSaw).containsExactly(whatTheMigrationPromises);
+      assertThat(template.valuesSet())
+          .containsExactly(
+              whatTheApplicationPromises,
+              whatTheMigrationPromises,
+              whatTheApplicationPromises);
+
+    }
+
+    // the writes went through, so the set answered the mode. A server without replication would
+    // not even know the name.
+    assertThat(whatTheDatabaseWasHanded.writeConcerns())
+        .isNotEmpty()
+        .allSatisfy(writeConcern -> assertThat(writeConcern)
+            .isEqualTo(whatTheMigrationPromises.asDocument()));
 
   }
 
