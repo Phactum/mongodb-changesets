@@ -126,6 +126,37 @@ nothing but the journal.
 What your application writes later is written the way your application set its `MongoTemplate`
 up. If you want a promise like this one for your own writes, make it yourself.
 
+## Where the promise stops
+
+The promise covers what a step writes through the `MongoTemplate` it was handed. It covers
+nothing else.
+
+A collection the step takes out of that template is not covered.
+`mongoTemplate.getCollection("customer")` hands out the collection of the connection, and the
+write concern of the template never reaches it. A client the step opens itself is further away
+still. Both write with what their connection asks for, and that is usually less than what the
+record about the step was written with.
+
+Then the record promises more than the work it stands for. A node which dies right after writing
+the record brings that record back from its journal. The work of the step can be gone all the
+same. The next start reads the record, skips the step and says nothing, because as far as this
+library can see the migration is done.
+
+The library cannot help you here. It calls your method, and what your method does inside is its
+own business. So write through the template you were handed. Where a step has to go around it,
+name a promise on what it writes with, and make it at least as strong as the one the record got:
+
+```java
+mongoTemplate
+        .getCollection("customer")
+        .withWriteConcern(WriteConcern.W1.withJournal(true))
+        .insertOne(document);
+```
+
+`w: 1` with the journal is what the migration writes with where your application names no promise
+anywhere. An application which writes with `majority` migrates with `majority` and the journal, so
+a step of that application asks for the same.
+
 ## How the order is decided
 
 By the `order` of `@DbChangeset`, and by nothing else. The number is read across every changeset
