@@ -146,6 +146,12 @@ public class ChangesetApplier {
    * field its setter writes. Without it this library would either leave the template of the
    * application changed for good or give it back a value the application never asked for.
    * <p>
+   * Spring Data MongoDB was asked for a getter, and its maintainers said no. For them the write
+   * concern and the three values that go with it are an internal detail of the template. They
+   * would only make public a new type which holds all of these consistency settings together, and
+   * this library does not build that type. So the reflection stays, and it stays on purpose. This
+   * is decision 7 in the repository's DECISIONS.md.
+   * <p>
    * This is the one place where this library reaches inside Spring Data MongoDB, so it is the
    * one place a new Spring Data MongoDB can break. That is why it is not private. A test calls
    * it and writes through the same template, so a build says what an application would otherwise
