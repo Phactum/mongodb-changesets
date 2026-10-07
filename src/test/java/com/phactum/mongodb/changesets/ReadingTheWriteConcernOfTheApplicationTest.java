@@ -20,7 +20,8 @@ import com.mongodb.WriteConcern;
  * template back the way it got it. Both need the value the application set on its MongoTemplate.
  * Spring Data MongoDB takes that value and hands it back to nobody, so
  * {@link ChangesetApplier#writeConcernSetOn(MongoTemplate)} reads the private field the setter
- * writes.
+ * writes. Spring Data MongoDB was asked for a getter and said no, so this stays the way in
+ * (decision 7 in the repository's DECISIONS.md).
  * <p>
  * A new Spring Data MongoDB can take that field away or call it something else, and then this
  * library is wrong. These tests are where that shows up. They run on every build, so an upgrade

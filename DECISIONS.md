@@ -126,3 +126,32 @@ chose.
 The Azure Cosmos mode may not take a `majority`, and nothing here proves that it does. The
 calculation passes on what the application itself uses, so it cannot ask that database for
 something the application knows it cannot have.
+
+## 7. The write concern of the application is read from a private field of `MongoTemplate`
+
+`ChangesetApplier.writeConcernSetOn` reads the private field `writeConcern` of the
+`MongoTemplate` by reflection. Reflection means the code opens a field that the class keeps to
+itself.
+
+The migration needs the value twice. It grows its own promise out of it, and it puts the value back
+on the template when it is done, also when the template carried none. `MongoTemplate` has a setter
+for this value and no getter. Its method `prepareWriteConcern` is `protected`.
+
+A `WriteConcernResolver` of our own would avoid the reflection, but it has the same gap. The
+template has no getter for the resolver either. So the library could not put back a resolver the
+application had set itself, and it would lose that resolver when it cleans up.
+
+Spring Data MongoDB was asked for a getter, and its maintainers said no on 2026-09-28
+([spring-data-mongodb#5248](https://github.com/spring-projects/spring-data-mongodb/issues/5248#issuecomment-5865837801)).
+For them the write concern, the write concern resolver and the read preference are an internal
+detail of the template. The read preference is public only because of how their aggregation code
+is built, and they say they would not do that again. They would make one new type public, a type
+which holds all of these consistency settings together. This library does not build that type for
+Spring Data. Even if it did, the type would only help from the Spring Data version which has it,
+and the library would still need the reflection for every version before that.
+
+So the reflection stays, on purpose. It is the one place where this library reaches inside Spring
+Data MongoDB, and a test guards it. `ReadingTheWriteConcernOfTheApplicationTest` fails when the
+field is gone or renamed. It also fails when the field is still there and the template no longer
+writes with it. Where the field is gone at run time, the library stops at startup with a message
+which says why it reads a private field and what to do.
