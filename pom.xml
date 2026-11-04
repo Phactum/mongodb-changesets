@@ -8,7 +8,7 @@
   <parent>
     <groupId>io.vanillabp</groupId>
     <artifactId>release-parent</artifactId>
-    <version>1.1.1</version>
+    <version>2.0.0</version>
   </parent>
 
   <groupId>com.phactum.mongodb</groupId>
@@ -159,6 +159,18 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-javadoc-plugin</artifactId>
+        <executions>
+          <!-- The release parent packs the javadoc jar in its 'release' profile only. This
+               binds the same execution id in every build, so a snapshot gets the jar as well.
+               In a release the two declarations merge into one, and the jar is built once. -->
+          <execution>
+            <id>attach-javadocs</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+            <phase>package</phase>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.jacoco</groupId>
