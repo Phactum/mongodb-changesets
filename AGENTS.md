@@ -97,9 +97,9 @@ and the build fails on a violation.
 
 ## What the build publishes
 
-A push to main publishes the snapshot to the GitHub Packages of this repository. The token GitHub
-hands the run is enough for that, so the build and the publish read no secret of their own.
+A push to main publishes the snapshot to the snapshot repository of Maven Central,
+`https://central.sonatype.com/repository/maven-snapshots/`. Anybody can read it there without a
+login. The release workflow follows the sibling repositories and uploads to Maven Central too.
 
-The release workflow follows the sibling repositories and uploads to Maven Central. It needs
-credentials which an administrator has to create first, and the comments in
-[`.github/workflows/release.yaml`](./.github/workflows/release.yaml) name them.
+Both read the Central Portal token, which an administrator has to create first. The comments in
+[`.github/workflows/release.yaml`](./.github/workflows/release.yaml) name the secrets.

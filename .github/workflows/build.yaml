@@ -1,6 +1,6 @@
 name: Build
 # A pull request builds and tests. Publishing is the job of
-# deploy-to-github-packages.yaml, which has a concurrency group of its own.
+# publish-snapshots.yaml, which has a concurrency group of its own.
 #
 # No secret is read here. Everything this project compiles against comes from Maven
 # Central, and the build uploads nothing, so it needs no settings file either.

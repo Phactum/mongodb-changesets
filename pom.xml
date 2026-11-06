@@ -25,14 +25,6 @@
     <url>https://github.com/Phactum/mongodb-changesets/tree/main</url>
   </scm>
 
-  <distributionManagement>
-    <snapshotRepository>
-      <id>github</id>
-      <name>Github Packages</name>
-      <url>https://maven.pkg.github.com/Phactum/mongodb-changesets</url>
-    </snapshotRepository>
-  </distributionManagement>
-
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -149,9 +141,8 @@
       </plugins>
     </pluginManagement>
     <plugins>
-      <!-- sources and javadoc travel with every build, not only with a release. GitHub Packages
-           is the only place this artifact is published to, and an IDE reading it from there
-           should find both. -->
+      <!-- sources and javadoc travel with every build, not only with a release. Other projects
+           compile against the snapshot, and an IDE reading it should find both. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-source-plugin</artifactId>
@@ -275,9 +266,9 @@
         plugin here again. Maven merges the two by plugin key and the child wins, which
         'mvn help:effective-pom -Pcentral-portal' shows.
 
-        The server id has to match the <server> entry in
-        .github/workflows/github-packages-settings.xml. Change one and the other one goes with it,
-        or the upload has no credentials. -->
+        The server id has to match the 'server-id' of 'actions/setup-java' in
+        .github/workflows/publish-snapshots.yaml and .github/workflows/release.yaml. Change one and
+        the others go with it, or the upload has no credentials. -->
       <id>central-portal</id>
       <build>
         <plugins>
