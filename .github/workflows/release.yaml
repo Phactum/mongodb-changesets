@@ -8,7 +8,7 @@ name: Release
 # or on the missing Maven Central credentials. Nothing here works around that.
 #
 # No snapshot comes out of a release. This workflow writes the next version into the pull
-# request back into main, and the publish of main deploys that snapshot to GitHub Packages.
+# request back into main, and the publish of main deploys that snapshot to Maven Central.
 "on":
   workflow_dispatch:
     inputs:
@@ -26,10 +26,9 @@ concurrency:
   # and neither of those survives being cut in half.
   #
   # The publish keeps its own group, so a release and a publish run beside each other.
-  # They cannot write the same thing. The 'central-portal' profile switches the deploy
-  # plugin off and uploads through the Central publishing plugin instead, and the only
-  # distribution management in the POM is the snapshot repository, which a released
-  # version never uses.
+  # They cannot write the same thing: both upload through the Central publishing plugin,
+  # which sends a released version to the Central Portal and a snapshot to the snapshot
+  # repository, and the two never share their coordinates.
   group: mongodb-changesets-release
   cancel-in-progress: false
 permissions:
@@ -39,7 +38,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
@@ -81,17 +79,13 @@ jobs:
             exit 1
           fi
       - name: Build and deploy to Maven Central
-        run: mvn -s $GITHUB_WORKSPACE/.github/workflows/github-packages-settings.xml
-          --batch-mode --no-transfer-progress
-          clean deploy -Prelease,central-portal
+        run: mvn --batch-mode --no-transfer-progress clean deploy -Prelease,central-portal
         env:
           # maven-gpg-plugin 3.2 reads the passphrase from this variable. Passing it as
           # -Dgpg.passphrase is deprecated since 3.2
           MAVEN_GPG_PASSPHRASE: "${{ secrets.MAVEN_GPG_PASSPHRASE }}"
           MAVEN_USERNAME: "${{ secrets.MAVEN_CENTRAL_PORTAL_TOKEN_USER }}"
           MAVEN_PASSWORD: "${{ secrets.MAVEN_CENTRAL_PORTAL_TOKEN_PW }}"
-          GITHUB_ACTOR: "${{ github.actor }}"
-          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
       - name: Commit and tag the release
         run: |
           git config user.name github-actions
