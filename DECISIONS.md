@@ -155,3 +155,34 @@ Data MongoDB, and a test guards it. `ReadingTheWriteConcernOfTheApplicationTest`
 field is gone or renamed. It also fails when the field is still there and the template no longer
 writes with it. Where the field is gone at run time, the library stops at startup with a message
 which says why it reads a private field and what to do.
+
+## 8. The order of a step is its identity as well as its position
+
+The `order` of a `@DbChangeset` says where a step runs, and it also names the step. Once a database
+has applied a step under a number, that number belongs to the step. The start ends with an error
+before any step runs in three cases: two steps in the code share a number, the database applied
+another id under the number of a step in the code, or the database applied the step under another
+number.
+
+Gaps are allowed, and a new step may take a free number below the applied ones. An application
+which gives each collection its own range of numbers needs both. Such a step runs after the higher
+ones on an existing database. Earlier the start logged that, but a free number below is now normal
+and not a hint at a mistake, so it says nothing.
+
+The id alone, which is the class name plus the method name, did not catch two mistakes. A renamed
+step looked like a new one and ran a second time next to its old record. A step whose number was
+changed was looked up in a map sorted by number. Whether the lookup found its record depended on
+the shape of that map, so the step was either skipped or tried again. Both mistakes stay silent
+until the data is wrong. Holding the number as part of the identity turns them into an error at
+the first start.
+
+A record of a step the software does not know any more is not a conflict while its number is free.
+A downgrade leaves such records, and the application has to start with them. When a step in the
+code takes that number, the record is a conflict, also with `initializer.rollback.unknown`. That
+rollback runs after the new steps, so the rollback of the old record could undo what the new step
+with its number just did. Running it before the new steps was the other candidate. It was turned
+down because it changes when a downgrade rolls back for everybody, only to make one rare case
+start without a manual step.
+
+`initializer.rollback.all` runs before the check. It rolls back every record and ends the process,
+so no step of the code runs next to a conflict. That keeps it a way out on a development machine.

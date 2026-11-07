@@ -159,11 +159,13 @@ class ChangesetApplierTest extends AgainstARealMongoDb {
     applicationHaving(TwoStepsOutOfOrder.class)
         .run(context -> assertThat(context).hasNotFailed());
 
-    // the same step under a bean of another name is a step the database has never seen, which is
-    // why renaming a changeset bean or one of its methods makes the step run again
-    applicationHaving(TheSameStepUnderAnotherName.class)
+    // the same method under a bean of another name is a step the database has never seen. With
+    // an order of its own it runs like any new step. Under the order of the old step the start
+    // ends instead, see AnOrderIsTheIdentityOfAStepTest.
+    applicationHaving(TwoStepsOutOfOrder.class, TheSameStepUnderAnotherName.class)
         .run(context -> assertThat(context).hasNotFailed());
 
+    assertThat(invocations).contains("first, under another bean");
     assertThat(mongoTemplate().findAll(ChangesetInformation.class))
         .extracting(ChangesetInformation::getId)
         .contains(TheSameStepUnderAnotherName.class.getName()
@@ -174,7 +176,7 @@ class ChangesetApplierTest extends AgainstARealMongoDb {
   @DbChangesetConfiguration(author = "the team")
   static class TheSameStepUnderAnotherName {
 
-    @DbChangeset(order = 10)
+    @DbChangeset(order = 30)
     public String first() {
 
       invocations.add("first, under another bean");
@@ -250,39 +252,6 @@ class ChangesetApplierTest extends AgainstARealMongoDb {
 
     assertThat(invocations).isEmpty();
     // the start is refused while the steps are collected, so nothing was written down
-    assertThat(mongoTemplate().findAll(ChangesetInformation.class)).isEmpty();
-
-  }
-
-  @DbChangesetConfiguration(author = "the team")
-  static class TwoStepsClaimingTheSameOrder {
-
-    @DbChangeset(order = 7)
-    public String one() {
-
-      return null;
-
-    }
-
-    @DbChangeset(order = 7)
-    public String other() {
-
-      return null;
-
-    }
-
-  }
-
-  @Test
-  void twoStepsWithTheSameOrderEndTheStart() {
-
-    applicationHaving(TwoStepsClaimingTheSameOrder.class)
-        .run(context -> assertThat(context)
-            .hasFailed()
-            .getFailure()
-            .rootCause()
-            .hasMessageContaining("Got at least two changesets having the same order value '7'"));
-
     assertThat(mongoTemplate().findAll(ChangesetInformation.class)).isEmpty();
 
   }
