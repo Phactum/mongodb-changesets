@@ -74,8 +74,10 @@ A step runs once per database. What ran is stored in the collection `ChangesetIn
 document per step, holding the author, the order, the time the step was started and the rollback
 scripts it answered with. A later start reads that collection and skips what is in it.
 
-The identity of a step is the class name of its bean plus the name of its method. Renaming either
-of the two makes the step run again on a database which already has it.
+The identity of a step is the class name of its bean plus the name of its method, and its `order`
+as well, see [How the order is decided](#how-the-order-is-decided). Renaming the class or the
+method makes it another step. Under the same `order` the start then ends with an error, instead of
+running the step again.
 
 The step is written down before it runs. A second node of the cluster which starts at the same
 moment and is a little bit faster has written that document already. The slower node still has the
@@ -163,8 +165,30 @@ By the `order` of `@DbChangeset`, and by nothing else. The number is read across
 bean of the application, not per bean, so a step of one bean can sit between two steps of another.
 The position of a method in its class means nothing.
 
-Two steps which declare the same number end the start with an error. There would be no answer to
-which of them runs first, and a migration whose order depends on the day is not a migration.
+The order is more than a position. It also names the step, like an id. Once a number is used, it
+belongs to that step for good. Gaps between numbers are fine, and a new step may take a free number
+below the ones a database applied already. It runs on that database after the steps with higher
+numbers, and on a new database in its place. That is how an application can keep ranges of numbers
+apart, for example one range per collection.
+
+The start ends with an error, before any step runs, in three cases:
+
+- Two steps in the code have the same number. There would be no answer to which of them runs
+  first. Give one of them a number no other step uses.
+- The database has applied a step under this number, and that step has another id than the step in
+  the code. Either the step was renamed, or the number was used a second time. Give a renamed step
+  back its old name, or set the `_id` of its record to the new name. Give a new step a free number.
+- The database has applied the step under another number than the one the code gives it. Put the
+  old number back. If the new number is meant, set the field `order` of the record to it.
+
+The error names every step and number involved, so one start shows all conflicts.
+
+A record of a step this software does not know any more is no conflict, as long as no step in the
+code has its number. A downgrade leaves such records behind. Once a step in the code takes that
+number, it is a conflict, also with `-Dinitializer.rollback.unknown=true`. That rollback runs only
+after the new steps, so it could undo what the step with the same number just did.
+`-Dinitializer.rollback.all=true` runs before the check, so it is always a way out on a development
+machine.
 
 ## What a step answers with
 
@@ -196,6 +220,12 @@ Anything else means no.
 
 A script which fails is logged and the rollback goes on. A rollback is a repair, and stopping in
 the middle of one leaves the database in a worse state than finishing it.
+
+The failure is logged as a warning which names the step and the script. The scripts of that step
+after the failing one do not run, and its record stays, so the database still counts the step as
+applied. A script which drops an index that a later step dropped already fails this way. Dropping
+the collection drops its indexes too, so a step which creates a collection is best undone by that
+drop alone.
 
 ## Telling the library which MongoDB it talks to
 

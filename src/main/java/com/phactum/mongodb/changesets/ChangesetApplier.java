@@ -9,6 +9,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.bson.Document;
@@ -124,7 +125,11 @@ public class ChangesetApplier {
 
       rollbackAllIfNecessary();
 
-      final var unknownChangesets = removeAlreadyAppliedChangesets(changesets);
+      final var appliedChangesets = knownChangesets();
+
+      refuseAnOrderTakenByAnotherStep(changesets.keySet(), appliedChangesets);
+
+      final var unknownChangesets = removeAlreadyAppliedChangesets(changesets, appliedChangesets);
 
       applyNewChangesets(changesets);
 
@@ -313,27 +318,127 @@ public class ChangesetApplier {
       final ChangesetInformation changeset,
       final String info) {
 
-    try {
-      logger.info(info, changeset.getId());
+    logger.info(info, changeset.getId());
 
-      // every record this mechanism writes carries a list, and a record somebody wrote into the
-      // collection themselves carries none. There is nothing to run for such a record, and the
-      // rollback goes on to remove it like any other one.
-      final var rollbackScripts = changeset.getRollbackScripts();
-      if (rollbackScripts != null) {
-        rollbackScripts
-            .stream()
-            .map(Document::parse)
-            .forEach(script -> mongoTemplate
-                .execute(db -> db.runCommand(script)));
+    // every record this mechanism writes carries a list, and a record somebody wrote into the
+    // collection themselves carries none. There is nothing to run for such a record, and the
+    // rollback goes on to remove it like any other one.
+    final var rollbackScripts = changeset.getRollbackScripts() == null
+        ? List.<String>of()
+        : changeset.getRollbackScripts();
+
+    for (final var script : rollbackScripts) {
+      try {
+        mongoTemplate
+            .execute(db -> db.runCommand(Document.parse(script)));
+      } catch (Exception e) {
+        // A WARN and not an INFO: the developer asked for an empty database and does not get
+        // one. The rollback still goes on with the next step, because stopping in the middle
+        // leaves the database in a worse state than finishing. So this line is the only place
+        // which tells that something stayed behind.
+        logger.warn(
+            "The rollback of changeset '{}' failed at the command {}. Its remaining commands did "
+                + "not run, and its record stays, so the database still counts the changeset as "
+                + "applied. The rollback goes on with the next changeset.",
+            changeset.getId(),
+            script,
+            e);
+        return;
       }
+    }
 
+    try {
       mongoTemplate
           .remove(changeset);
     } catch (Exception e) {
-      logger.info(info
-          + " failed!", changeset.getId(), e);
+      logger.warn(
+          "The rollback of changeset '{}' ran every command, but its record could not be removed. "
+              + "The database still counts the changeset as applied. The rollback goes on with "
+              + "the next changeset.",
+          changeset.getId(),
+          e);
     }
+
+  }
+
+  /**
+   * Ends the start where the database and the code disagree about an order. The order of a step is
+   * its identity as well as its position, see decision 8 in the repository's DECISIONS.md.
+   * <p>
+   * Two things are a conflict. A record has the order of a step in the code, but another id: the
+   * step was renamed, or its order was used again. And a record has the id of a step in the code,
+   * but another order: the order in the code was changed. Without this check the first case runs
+   * the step in the code next to the record, and the second one runs the step a second time or
+   * fails with a duplicate key error that looks like a second node.
+   * <p>
+   * A record of a step this software does not know any more is no conflict while its order is
+   * free. A downgrade leaves such records behind, and the start has to go on with them. Once a step
+   * in the code takes that order, it is a conflict, also with <code>initializer.rollback.unknown
+   * </code>: the unknown step is rolled back only after the new steps ran, and its rollback could
+   * undo what the step with its order just did.
+   * <p>
+   * Every conflict is collected first, so a developer gets the whole list in one start.
+   */
+  private static void refuseAnOrderTakenByAnotherStep(
+      final Collection<ChangesetInformation> changesetsInTheCode,
+      final List<ChangesetInformation> appliedChangesets) {
+
+    final var codeById = changesetsInTheCode
+        .stream()
+        .collect(Collectors.toMap(ChangesetInformation::getId, Function.identity()));
+    final var codeByOrder = changesetsInTheCode
+        .stream()
+        .collect(Collectors.toMap(ChangesetInformation::getOrder, Function.identity()));
+
+    final var conflicts = new LinkedList<String>();
+    for (final var applied : appliedChangesets) {
+
+      final var sameId = codeById.get(applied.getId());
+      if ((sameId != null) && (sameId.getOrder() != applied.getOrder())) {
+        conflicts.add("Changeset '"
+            + sameId.getId()
+            + "' has order "
+            + sameId.getOrder()
+            + ", but the database applied it with order "
+            + applied.getOrder()
+            + ". Put order "
+            + applied.getOrder()
+            + " back into its annotation. If the new order is meant, set the field 'order' of "
+            + "its record in the collection "
+            + ChangesetInformation.COLLECTION_NAME
+            + " to "
+            + sameId.getOrder()
+            + ".");
+      }
+
+      final var sameOrder = codeByOrder.get(applied.getOrder());
+      if ((sameOrder != null) && !sameOrder.getId().equals(applied.getId())) {
+        conflicts.add("Changeset '"
+            + sameOrder.getId()
+            + "' has order "
+            + sameOrder.getOrder()
+            + ", but the applied changeset '"
+            + applied.getId()
+            + "' already has that order. If it is that changeset renamed, give it back its old "
+            + "class and method name, or set the _id of the record in the collection "
+            + ChangesetInformation.COLLECTION_NAME
+            + " to its new name. If it is a new changeset, give it an order which is free. If "
+            + "the record was left behind by another version of the software, remove it, or "
+            + "on a development machine roll everything back with -D"
+            + SYSTEMPROPERTY_ROLLBACKALL
+            + "=true.");
+      }
+
+    }
+
+    if (conflicts.isEmpty()) {
+      return;
+    }
+
+    throw new IllegalStateException(
+        "The order of a changeset is its identity, and an order may belong to one changeset "
+            + "only. This database and the code disagree about that, so no changeset ran:\n- "
+            + String.join("\n- ", conflicts));
 
   }
 
@@ -475,20 +580,22 @@ public class ChangesetApplier {
               + returnType);
     }
 
-    final var duplicates = changeSetMethods.keySet()
+    final var sameOrder = changeSetMethods.keySet()
         .stream()
         .filter((
             key) -> key.getOrder() == information.getOrder())
-        .collect(Collectors.toList());
-    if (!duplicates.isEmpty()) {
-      throw new RuntimeException(
-          "Got at least two changesets having the same order value '"
-              + information.getOrder()
-              + "': '"
-              + information.getId()
+        .findFirst();
+    if (sameOrder.isPresent()) {
+      throw new IllegalStateException(
+          "Changesets '"
+              + sameOrder.get().getId()
               + "' and '"
-              + duplicates.iterator().next().getId()
-              + "'!");
+              + information.getId()
+              + "' have the same order "
+              + information.getOrder()
+              + ". The order of a changeset is its identity as well as its position, so it may "
+              + "belong to one changeset only. Give one of them an order which no other "
+              + "changeset uses. Gaps between orders are fine.");
     }
 
     changeSetMethods.put(information, method);
@@ -506,40 +613,38 @@ public class ChangesetApplier {
   }
 
   private List<ChangesetInformation> removeAlreadyAppliedChangesets(
-      final Map<ChangesetInformation, DbChangesetMethod> changeSetMethods) {
+      final Map<ChangesetInformation, DbChangesetMethod> changeSetMethods,
+      final List<ChangesetInformation> appliedChangesets) {
 
-    final var unkownChangesets = new LinkedList<ChangesetInformation>();
+    // matched by id alone. The map is sorted by order, and a lookup in it walks by order, so a
+    // record whose order differed would not be found. The check of the orders ran before, so here
+    // a record with a known id also has the same order.
+    final var idsInTheCode = changeSetMethods
+        .keySet()
+        .stream()
+        .map(ChangesetInformation::getId)
+        .collect(Collectors.toSet());
+    final var appliedIds = appliedChangesets
+        .stream()
+        .map(ChangesetInformation::getId)
+        .collect(Collectors.toSet());
 
-    knownChangesets()
-        .forEach(alreadyAppliedChangeset -> {
-          if (changeSetMethods.remove(alreadyAppliedChangeset) == null) {
-            unkownChangesets.add(alreadyAppliedChangeset);
-          }
-        });
+    changeSetMethods
+        .keySet()
+        .removeIf(changeset -> appliedIds.contains(changeset.getId()));
 
-    return unkownChangesets;
+    return appliedChangesets
+        .stream()
+        .filter(applied -> !idsInTheCode.contains(applied.getId()))
+        .collect(Collectors.toCollection(LinkedList::new));
 
   }
 
   private Map<ChangesetInformation, DbChangesetMethod> buildMapSortedByChangesetOrder() {
 
-    return new TreeMap<>(
-        new Comparator<ChangesetInformation>() {
-          @Override
-          public int compare(
-              final ChangesetInformation o1,
-              final ChangesetInformation o2) {
-
-            if (o1.equals(o2)) {
-              return 0;
-            }
-            if (o1.getOrder() != o2.getOrder()) {
-              return o1.getOrder() < o2.getOrder() ? -1 : 1;
-            }
-            return o1.getId().compareTo(o2.getId());
-
-          }
-        });
+    // the order alone is enough, because two steps with the same order are refused before they
+    // reach the map
+    return new TreeMap<>(Comparator.comparingInt(ChangesetInformation::getOrder));
 
   }
 

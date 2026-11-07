@@ -6,7 +6,13 @@ import java.util.concurrent.TimeUnit;
 
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.mongodb.core.MongoTemplate;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 /**
  * What the two rollback system properties do.
@@ -137,6 +143,39 @@ class ChangesetRollbackTest extends AgainstARealMongoDb {
                 + "#answersWithSomethingMongoDbDoesNotKnow",
             TheNewSoftware.class.getName()
                 + "#createTheWords");
+
+  }
+
+  /**
+   * The developer asked for the steps to be undone, and one of them was not. The rollback goes on,
+   * so the log is the only place which says so, and it says so as a warning: an INFO is lost in
+   * the lines of a start.
+   */
+  @Test
+  void aScriptWhichFailsIsReportedAsAWarningWhichNamesTheStepAndTheScript() {
+
+    applicationHaving(TheOldSoftwareWithOneBrokenScript.class)
+        .run(context -> assertThat(context).hasNotFailed());
+
+    final var log = new ListAppender<ILoggingEvent>();
+    log.start();
+    final var logger = (Logger) LoggerFactory.getLogger(ChangesetApplier.class);
+    logger.addAppender(log);
+    try {
+      withTheProperty(ROLLBACK_UNKNOWN, () -> applicationHaving(TheNewSoftware.class)
+          .run(context -> assertThat(context).hasNotFailed()));
+    } finally {
+      logger.detachAppender(log);
+    }
+
+    assertThat(log.list)
+        .filteredOn(event -> event.getLevel() == Level.WARN)
+        .singleElement()
+        .satisfies(event -> assertThat(event.getFormattedMessage())
+            .contains(TheOldSoftwareWithOneBrokenScript.class.getName()
+                + "#answersWithSomethingMongoDbDoesNotKnow")
+            .contains("{ notACommand: 1 }")
+            .contains("record stays"));
 
   }
 
