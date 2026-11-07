@@ -166,6 +166,12 @@ The position of a method in its class means nothing.
 Two steps which declare the same number end the start with an error. There would be no answer to
 which of them runs first, and a migration whose order depends on the day is not a migration.
 
+A new step may have a lower number than a step the database applied already. It runs anyway, on
+that database after the step with the higher number, and the start logs an INFO which names both.
+That is what a repair wants which has to come before a step that is already out there: on a new
+database it runs in its place. A number typed too low looks the same, and the INFO is where it
+shows.
+
 ## What a step answers with
 
 A step answers with a MongoDB command which undoes what it did, so that a rollback has something

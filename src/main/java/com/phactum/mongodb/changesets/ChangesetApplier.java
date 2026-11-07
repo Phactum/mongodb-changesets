@@ -124,7 +124,11 @@ public class ChangesetApplier {
 
       rollbackAllIfNecessary();
 
-      final var unknownChangesets = removeAlreadyAppliedChangesets(changesets);
+      final var appliedChangesets = knownChangesets();
+
+      final var unknownChangesets = removeAlreadyAppliedChangesets(changesets, appliedChangesets);
+
+      reportNewChangesetsBelowTheHighestApplied(changesets.keySet(), appliedChangesets);
 
       applyNewChangesets(changesets);
 
@@ -319,7 +323,7 @@ public class ChangesetApplier {
     // collection themselves carries none. There is nothing to run for such a record, and the
     // rollback goes on to remove it like any other one.
     final var rollbackScripts = changeset.getRollbackScripts() == null
-        ? List.<String> of()
+        ? List.<String>of()
         : changeset.getRollbackScripts();
 
     for (final var script : rollbackScripts) {
@@ -353,6 +357,40 @@ public class ChangesetApplier {
           changeset.getId(),
           e);
     }
+
+  }
+
+  /**
+   * Logs every new step whose order is below the highest order the database has applied already.
+   * <p>
+   * Such a step runs now, after steps with a higher order, so on this database it runs out of
+   * order. That can be on purpose: a repair which has to come before a step that is already out
+   * there gets a lower number on purpose, and on a new database it then runs in its place. It can
+   * also be a mistake, a number typed too low, and then the step does on an existing database what
+   * its author never tried. Both look the same here, so the start goes on and the log says it. The
+   * line is an INFO, because the case which is meant happens on every existing database once.
+   * <p>
+   * Every record counts, also one this software does not know any more. Such a record comes from
+   * a newer version, and a new step below it still runs after it.
+   */
+  private static void reportNewChangesetsBelowTheHighestApplied(
+      final Collection<ChangesetInformation> newChangesets,
+      final List<ChangesetInformation> appliedChangesets) {
+
+    appliedChangesets
+        .stream()
+        .max(Comparator.comparingInt(ChangesetInformation::getOrder))
+        .ifPresent(highestApplied -> newChangesets
+            .stream()
+            .filter(changeset -> changeset.getOrder() < highestApplied.getOrder())
+            .forEach(changeset -> logger.info(
+                "New changeset '{}' has order {}, which is below order {} of changeset '{}' this "
+                    + "database applied already. It runs now, after that one, so on this "
+                    + "database it runs out of order.",
+                changeset.getId(),
+                changeset.getOrder(),
+                highestApplied.getOrder(),
+                highestApplied.getId())));
 
   }
 
@@ -525,11 +563,12 @@ public class ChangesetApplier {
   }
 
   private List<ChangesetInformation> removeAlreadyAppliedChangesets(
-      final Map<ChangesetInformation, DbChangesetMethod> changeSetMethods) {
+      final Map<ChangesetInformation, DbChangesetMethod> changeSetMethods,
+      final List<ChangesetInformation> appliedChangesets) {
 
     final var unkownChangesets = new LinkedList<ChangesetInformation>();
 
-    knownChangesets()
+    appliedChangesets
         .forEach(alreadyAppliedChangeset -> {
           if (changeSetMethods.remove(alreadyAppliedChangeset) == null) {
             unkownChangesets.add(alreadyAppliedChangeset);
