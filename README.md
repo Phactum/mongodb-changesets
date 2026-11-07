@@ -197,6 +197,12 @@ Anything else means no.
 A script which fails is logged and the rollback goes on. A rollback is a repair, and stopping in
 the middle of one leaves the database in a worse state than finishing it.
 
+The failure is logged as a warning which names the step and the script. The scripts of that step
+after the failing one do not run, and its record stays, so the database still counts the step as
+applied. A script which drops an index that a later step dropped already fails this way. Dropping
+the collection drops its indexes too, so a step which creates a collection is best undone by that
+drop alone.
+
 ## Telling the library which MongoDB it talks to
 
 Azure Cosmos DB offers a MongoDB API, and it answers a query which sorts by a field without an

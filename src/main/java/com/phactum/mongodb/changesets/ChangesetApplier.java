@@ -313,26 +313,45 @@ public class ChangesetApplier {
       final ChangesetInformation changeset,
       final String info) {
 
-    try {
-      logger.info(info, changeset.getId());
+    logger.info(info, changeset.getId());
 
-      // every record this mechanism writes carries a list, and a record somebody wrote into the
-      // collection themselves carries none. There is nothing to run for such a record, and the
-      // rollback goes on to remove it like any other one.
-      final var rollbackScripts = changeset.getRollbackScripts();
-      if (rollbackScripts != null) {
-        rollbackScripts
-            .stream()
-            .map(Document::parse)
-            .forEach(script -> mongoTemplate
-                .execute(db -> db.runCommand(script)));
+    // every record this mechanism writes carries a list, and a record somebody wrote into the
+    // collection themselves carries none. There is nothing to run for such a record, and the
+    // rollback goes on to remove it like any other one.
+    final var rollbackScripts = changeset.getRollbackScripts() == null
+        ? List.<String> of()
+        : changeset.getRollbackScripts();
+
+    for (final var script : rollbackScripts) {
+      try {
+        mongoTemplate
+            .execute(db -> db.runCommand(Document.parse(script)));
+      } catch (Exception e) {
+        // A WARN and not an INFO: the developer asked for an empty database and does not get
+        // one. The rollback still goes on with the next step, because stopping in the middle
+        // leaves the database in a worse state than finishing. So this line is the only place
+        // which tells that something stayed behind.
+        logger.warn(
+            "The rollback of changeset '{}' failed at the command {}. Its remaining commands did "
+                + "not run, and its record stays, so the database still counts the changeset as "
+                + "applied. The rollback goes on with the next changeset.",
+            changeset.getId(),
+            script,
+            e);
+        return;
       }
+    }
 
+    try {
       mongoTemplate
           .remove(changeset);
     } catch (Exception e) {
-      logger.info(info
-          + " failed!", changeset.getId(), e);
+      logger.warn(
+          "The rollback of changeset '{}' ran every command, but its record could not be removed. "
+              + "The database still counts the changeset as applied. The rollback goes on with "
+              + "the next changeset.",
+          changeset.getId(),
+          e);
     }
 
   }
