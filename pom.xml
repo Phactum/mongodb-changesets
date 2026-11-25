@@ -33,7 +33,7 @@
     <!-- Spring Boot 4 split spring-boot-autoconfigure into one artifact per technology. The
          MongoDB auto-configuration this project orders itself against lives in
          spring-boot-data-mongodb since then. -->
-    <spring-boot.version>4.1.2</spring-boot.version>
+    <spring-boot.version>4.1.3</spring-boot.version>
     <jacoco.version>0.8.16</jacoco.version>
     <!-- Where the build breaks, as a share of the covered instructions of the whole project.
       The number is the one every VanillaBP repository uses, and it marks the point where
